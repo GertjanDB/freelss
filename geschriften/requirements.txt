@@ -1,0 +1,4 @@
+pillow>=10.0
+fonttools>=4.40
+cairosvg>=2.7
+numpy>=1.24
