@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Generate 10 typewriter-style sample writings as SVG (vector) and PNG.
+"""Maak handgeschreven voorbeeldteksten als SVG (vector) en PNG.
 
-Each occurrence of a letter gets its own outline, ink, rotation and strike
-so the page looks typed on a real machine rather than set in a digital font.
+Teksten staan in geschriften/teksten/*.txt — pas die aan en run dit script
+opnieuw. Elke letter krijgt een eigen pad, dus twee keer dezelfde e is
+nooit identiek.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import os
 import random
 import re
+import sys
 import xml.sax.saxutils as xml
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -25,44 +29,39 @@ from PIL import Image, ImageFilter
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(ROOT, "fonts")
+TEXT_DIR = os.path.join(ROOT, "teksten")
 SVG_DIR = os.path.join(ROOT, "svg")
 PNG_DIR = os.path.join(ROOT, "png")
+STYLE_PATH = os.path.join(ROOT, "stijlen.json")
 
-# A4 at 150 dpi in SVG user units; PNG is rendered 2x (300 dpi).
 PAGE_W = 1240
 PAGE_H = 1754
 PNG_SCALE = 2
+NUM_RE = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?")
 
 
 @dataclass
-class Typewriter:
-    """Persistent quirks of one machine / one typist."""
-
-    name: str
-    font_file: str
-    size: float
-    ink: Tuple[int, int, int]
-    paper: Tuple[int, int, int]
-    jitter: float
-    rotation: float
-    wear: float
-    ribbon_fade: float
+class Hand:
+    id: str
+    titel: str
+    hand: str
+    tekstbestand: str
+    font: str
+    grootte: float
+    inkt: Tuple[int, int, int]
+    papier: Tuple[int, int, int]
+    slordig: float
+    helling: float
+    regelafstand: float
     tracking: float
-    leading: float
-    key_bias: Dict[str, Tuple[float, float]]
-    double_strike: float
-    skip_strike: float
-    line_drift: float
-    platen_slant: float
-    margin_left: float
-    margin_top: float
-    margin_right: float
-    strike_heavy: float
-    ink_smear: float
-    baseline_wave: float
-    space_jitter: float
-    weight: Optional[int] = None
-    seed: int = 1
+    marge_links: float
+    marge_boven: float
+    marge_rechts: float
+    pen: str
+    lijntjes: bool
+    rode_marge: bool
+    zaad: int
+    gewicht: Optional[int] = None
 
 
 @dataclass
@@ -75,546 +74,56 @@ class GlyphCache:
     advances: Dict[str, float] = field(default_factory=dict)
 
 
-SAMPLE_TEXTS: List[Tuple[str, str, str]] = [
-    (
-        "01-anna-brief",
-        "Anna Vermeer — brief",
-        """Rotterdam, 12 maart 1978
-
-Lieve Karel,
-
-Ik schrijf je vanaf de keukentafel. De radio speelt zacht
-en de koffie is al koud. Gisteren ben ik langs de Maas
-gelopen tot aan de brug. Het waaide hard, maar de lucht
-was helder. Ik dacht aan die middag in Delft, toen we
-uren op een bankje zaten en nauwelijks iets zeiden.
-
-Moeder vraagt of je zondag mee-eet. Niets bijzonders,
-erwtensoep en brood. Als je niet kunt, stuur dan een
-kaartje. Ik kijk elke ochtend of de postbode stopt.
-
-Groet ook je zus van mij. En kom gauw.
-
-Hartelijke groeten,
-Anna""",
-    ),
-    (
-        "02-bert-memo",
-        "Bert Hendriks — kantoornotitie",
-        """INTERN MEMO
-Afdeling Expeditie                 4 juni 1984
-
-Aan: alle ploegleiders
-Van: B. Hendriks
-
-Vanaf maandag 11 juni vertrekt de ochtendronde om
-zes uur dertig in plaats van zeven uur. De poort
-aan de achterzijde blijft tot die tijd gesloten.
-Wie later binnenkomt, meldt zich bij de portier.
-
-Controleer de vrachtbrieven VOOR vertrek. Vorige
-week ontbraken twee handtekeningen. Dat mag niet
-meer voorkomen.
-
-De kantine is tussen twaalf en half een open.
-Geen eten in de laadhal.
-
-Hendriks""",
-    ),
-    (
-        "03-clara-dagboek",
-        "Clara de Wit — dagboekblad",
-        """Zaterdag 19 oktober 1963
-
-Vandaag voor het eerst de nieuwe machine gebruikt.
-De e-toets blijft hangen als ik te snel tik. Ik moet
-leren trager te zijn.
-
-Op school kreeg ik een acht voor aardrijkskunde.
-Juffrouw Kramer zei dat mijn kaart van de rivier
-duidelijk was. Daarna fietsen met Els naar het park.
-We kochten een zak drop en zaten tot het donker werd.
-
-Papa heeft in de schuur een plank gezaagd. Het ruikt
-er naar zaagsel en olie. Ik mag morgen helpen schilderen
-als het droog blijft.
-
-Dit blad bewaar ik.""",
-    ),
-    (
-        "04-dirk-verslag",
-        "Dirk Bos — werkverslag",
-        """WERKVERSLAG WEEK 37
-Technische Dienst          Utrecht, 14 september 1991
-
-Maandag: pomp 4 nagezien. Pakking vervangen. Proefdraaien
-tot 14.20 uur. Geen lekkage.
-
-Dinsdag: storing aan de band in hal B. Motor te warm.
-Koeling schoongemaakt. Band liep vanaf 11.00 weer.
-
-Woensdag: keuring ladders en steigers. Twee ladders
-afgekeurd, labels erop. Bestelling geplaatst.
-
-Donderdag: nieuwe filters geplaatst op compressor 2.
-Oliepeil in orde.
-
-Vrijdag: rapportage en magazijn. Voorraad bouten M8
-is laag. Aanvraag ligt bij inkoop.
-
-D. Bos""",
-    ),
-    (
-        "05-eva-uitnodiging",
-        "Eva Manders — uitnodiging",
-        """UITNODIGING
-
-Op zaterdag 8 mei 1976
-om drie uur in de middag
-
-vieren wij ons zilveren huwelijk
-in de tuin achter het huis
-Lindelaan 18, Haarlem
-
-Er is koffie, thee en later soep.
-Kinderen zijn van harte welkom.
-
-Geen cadeaus, wel een verhaal
-of een lied als je wilt.
-
-Gelieve te laten weten of je komt.
-Een briefkaart is genoeg.
-
-Eva en Willem Manders""",
-    ),
-    (
-        "06-fien-recept",
-        "Fien Kuipers — recept",
-        """APPELTAART VAN MOEDER
-voor een vorm van 24 centimeter
-
-300 gram bloem
-200 gram boter, koud
-100 gram suiker
-1 ei
-snuf zout
-
-Voor de vulling:
-6 zure appels
-50 gram suiker
-kaneel
-handvol rozijnen
-paneermeel voor de bodem
-
-Boter in de bloem wrijven tot kruimels.
-Suiker, zout en ei erbij. Snel tot deeg
-werken. Een uur in de kelder leggen.
-
-Appels schillen en in parten. Deeg uitrollen,
-vorm bekleden, paneermeel strooien, vulling
-erop. Strips over de bovenkant.
-
-Vijftig minuten in de oven, matig warm.
-Laat afkoelen voor je snijdt.""",
-    ),
-    (
-        "07-gerrit-bevestiging",
-        "Gerrit Smit — bevestiging",
-        """G. SMIT  RIJWIELHANDEL
-Voorstraat 9, Dordrecht
-
-Dordrecht, 22 november 1982
-
-Geachte heer Visser,
-
-Hierbij bevestig ik de bestelling van
-2 november:
-
-  1 herenrijwiel, zwart, maat 61
-  1 bagagedrager
-  2 spatborden
-  1 slot
-
-De fiets staat klaar vanaf vrijdag
-26 november. Openingstijden: acht tot
-zes, zaterdag tot vier.
-
-Het restant van honderd vijfentwintig
-gulden voldoet u bij afhalen.
-
-Hoogachtend,
-G. Smit""",
-    ),
-    (
-        "08-hanna-lijst",
-        "Hanna Veldman — paklijst",
-        """PAKLIJST KAMP  3 t/m 12 juli 1969
-
-KLEDING
-  4 shirts
-  3 korte broeken
-  1 lange broek
-  1 trui
-  2 paar schoenen
-  6 paar sokken
-  jas tegen regen
-  zwemkleding
-  pet
-
-VERDER
-  slaapzak
-  zaklamp en batterijen
-  mes, bord, beker, lepel
-  handdoek
-  zeep en tandenborstel
-  schrijfblok en potlood
-  briefkaarten
-  zakgeld in een envelop
-
-NIET VERGETEN
-  medicijnen van dokter Vos
-  adres van tante in Assen""",
-    ),
-    (
-        "09-ivo-instructie",
-        "Ivo Bakker — instructie",
-        """HANDLEIDING KETELHUIS
-alleen voor de nachtdienst
-
-1. Bij binnenkomst druk op de groene knop
-   links van de deur. Het lampje moet branden.
-
-2. Controleer de manometer. De wijzer hoort
-   tussen 2 en 4 te staan. Staat hij lager,
-   dan de toevoer een kwartslag opendraaien.
-   Nooit verder dan de rode streep.
-
-3. Elke twee uur de ronde doen:
-   - ketel 1 en 2
-   - pomp in de kelder
-   - achterdeur op slot
-
-4. Storing: eerst de bel bij de portier.
-   Daarna het nummer op het bord naast
-   de telefoon. Blijf bij de ketel tot
-   er iemand is.
-
-5. Einde dienst: rapport in het schrift.
-   Datum, tijd, naam, bijzonderheden.
-
-I. Bakker, 1987""",
-    ),
-    (
-        "10-joke-verklaring",
-        "Joke Langerak — verklaring",
-        """Leiden, 2 februari 1959
-
-Verklaring
-
-Ondergetekende, Johanna Langerak,
-wonende Kerkstraat 4 te Leiden,
-verklaart het volgende.
-
-Op maandag 26 januari omstreeks
-kwart over vier zag ik vanaf het
-raam van de voorkamer een grijze
-bestelwagen stilstaan voor nummer 7.
-Twee mannen tilden een kast naar
-binnen. Het duurde ongeveer twintig
-minuten. Daarna reden zij weg in
-de richting van de gracht.
-
-Ik ken de mannen niet. De auto had
-geen duidelijke tekst op de deur.
-
-Aldus naar waarheid opgemaakt.
-
-J. Langerak""",
-    ),
-]
+def load_styles() -> List[Hand]:
+    with open(STYLE_PATH, encoding="utf-8") as handle:
+        raw = json.load(handle)
+    hands = []
+    for item in raw:
+        ink = tuple(item["inkt"])
+        paper = tuple(item["papier"])
+        hands.append(
+            Hand(
+                id=item["id"],
+                titel=item["titel"],
+                hand=item["hand"],
+                tekstbestand=item["tekstbestand"],
+                font=item["font"],
+                grootte=float(item["grootte"]),
+                inkt=(int(ink[0]), int(ink[1]), int(ink[2])),
+                papier=(int(paper[0]), int(paper[1]), int(paper[2])),
+                slordig=float(item["slordig"]),
+                helling=float(item["helling"]),
+                regelafstand=float(item["regelafstand"]),
+                tracking=float(item["tracking"]),
+                marge_links=float(item["marge_links"]),
+                marge_boven=float(item["marge_boven"]),
+                marge_rechts=float(item["marge_rechts"]),
+                pen=item.get("pen", "balpen"),
+                lijntjes=bool(item.get("lijntjes", False)),
+                rode_marge=bool(item.get("rode_marge", False)),
+                zaad=int(item.get("zaad", 1)),
+                gewicht=item.get("gewicht"),
+            )
+        )
+    return hands
 
 
-TYPEWRITERS: List[Typewriter] = [
-    Typewriter(
-        name="Anna — oude Underwood",
-        font_file="SpecialElite-Regular.ttf",
-        size=21.5,
-        ink=(32, 28, 24),
-        paper=(242, 232, 210),
-        jitter=1.15,
-        rotation=2.1,
-        wear=0.42,
-        ribbon_fade=0.18,
-        tracking=13.4,
-        leading=34.0,
-        key_bias={"e": (0.45, -0.55), "a": (-0.35, 0.25), "o": (0.2, 0.4), "n": (-0.15, -0.3)},
-        double_strike=0.018,
-        skip_strike=0.012,
-        line_drift=0.22,
-        platen_slant=0.35,
-        margin_left=108,
-        margin_top=130,
-        margin_right=100,
-        strike_heavy=0.55,
-        ink_smear=0.65,
-        baseline_wave=1.4,
-        space_jitter=0.55,
-        seed=1978,
-    ),
-    Typewriter(
-        name="Bert — kantoor Olympia",
-        font_file="CourierPrime-Regular.ttf",
-        size=18.5,
-        ink=(18, 32, 58),
-        paper=(236, 236, 230),
-        jitter=0.55,
-        rotation=0.9,
-        wear=0.18,
-        ribbon_fade=0.14,
-        tracking=11.6,
-        leading=30.5,
-        key_bias={"t": (0.0, 0.45), "r": (-0.25, 0.15), "i": (0.2, -0.2)},
-        double_strike=0.008,
-        skip_strike=0.006,
-        line_drift=0.08,
-        platen_slant=0.12,
-        margin_left=120,
-        margin_top=118,
-        margin_right=110,
-        strike_heavy=0.35,
-        ink_smear=0.25,
-        baseline_wave=0.6,
-        space_jitter=0.25,
-        seed=1984,
-    ),
-    Typewriter(
-        name="Clara — portable Hermes",
-        font_file="CutiveMono-Regular.ttf",
-        size=19.0,
-        ink=(48, 42, 36),
-        paper=(248, 241, 226),
-        jitter=1.35,
-        rotation=2.4,
-        wear=0.5,
-        ribbon_fade=0.2,
-        tracking=12.2,
-        leading=32.0,
-        key_bias={"e": (0.6, 0.2), "s": (-0.4, -0.5), "d": (0.3, 0.35), "l": (0.0, -0.45)},
-        double_strike=0.028,
-        skip_strike=0.02,
-        line_drift=0.3,
-        platen_slant=-0.45,
-        margin_left=96,
-        margin_top=140,
-        margin_right=90,
-        strike_heavy=0.7,
-        ink_smear=0.8,
-        baseline_wave=1.8,
-        space_jitter=0.8,
-        seed=1963,
-    ),
-    Typewriter(
-        name="Dirk — IBM Selectric",
-        font_file="IBMPlexMono-Regular.ttf",
-        size=17.8,
-        ink=(22, 22, 22),
-        paper=(250, 248, 242),
-        jitter=0.28,
-        rotation=0.45,
-        wear=0.08,
-        ribbon_fade=0.08,
-        tracking=10.9,
-        leading=28.8,
-        key_bias={"g": (0.12, 0.1)},
-        double_strike=0.003,
-        skip_strike=0.002,
-        line_drift=0.04,
-        platen_slant=0.05,
-        margin_left=128,
-        margin_top=112,
-        margin_right=118,
-        strike_heavy=0.22,
-        ink_smear=0.12,
-        baseline_wave=0.25,
-        space_jitter=0.12,
-        seed=1991,
-    ),
-    Typewriter(
-        name="Eva — cursieve machine",
-        font_file="CourierPrime-Italic.ttf",
-        size=19.2,
-        ink=(40, 24, 28),
-        paper=(244, 236, 220),
-        jitter=0.85,
-        rotation=1.4,
-        wear=0.28,
-        ribbon_fade=0.22,
-        tracking=12.0,
-        leading=33.0,
-        key_bias={"a": (-0.2, 0.3), "e": (0.25, -0.2), "n": (0.15, 0.2)},
-        double_strike=0.014,
-        skip_strike=0.01,
-        line_drift=0.16,
-        platen_slant=0.2,
-        margin_left=150,
-        margin_top=150,
-        margin_right=140,
-        strike_heavy=0.4,
-        ink_smear=0.4,
-        baseline_wave=1.0,
-        space_jitter=0.4,
-        seed=1976,
-    ),
-    Typewriter(
-        name="Fien — zware Smith-Corona",
-        font_file="ShareTechMono-Regular.ttf",
-        size=18.2,
-        ink=(26, 38, 30),
-        paper=(239, 234, 218),
-        jitter=1.05,
-        rotation=1.7,
-        wear=0.36,
-        ribbon_fade=0.28,
-        tracking=12.8,
-        leading=31.0,
-        key_bias={"o": (0.5, -0.3), "a": (-0.4, 0.4), "t": (0.1, 0.55), "e": (0.3, -0.15)},
-        double_strike=0.02,
-        skip_strike=0.015,
-        line_drift=0.2,
-        platen_slant=-0.22,
-        margin_left=102,
-        margin_top=122,
-        margin_right=96,
-        strike_heavy=0.8,
-        ink_smear=0.7,
-        baseline_wave=1.2,
-        space_jitter=0.5,
-        seed=1952,
-    ),
-    Typewriter(
-        name="Gerrit — nette Adler",
-        font_file="AnonymousPro-Regular.ttf",
-        size=18.0,
-        ink=(16, 20, 36),
-        paper=(246, 246, 240),
-        jitter=0.48,
-        rotation=0.75,
-        wear=0.14,
-        ribbon_fade=0.12,
-        tracking=11.2,
-        leading=29.5,
-        key_bias={"r": (-0.18, 0.22), "s": (0.22, -0.18)},
-        double_strike=0.006,
-        skip_strike=0.005,
-        line_drift=0.07,
-        platen_slant=0.1,
-        margin_left=132,
-        margin_top=124,
-        margin_right=120,
-        strike_heavy=0.3,
-        ink_smear=0.22,
-        baseline_wave=0.45,
-        space_jitter=0.2,
-        seed=1982,
-    ),
-    Typewriter(
-        name="Hanna — schoolmachine",
-        font_file="CourierPrime-Bold.ttf",
-        size=18.8,
-        ink=(20, 20, 18),
-        paper=(232, 226, 208),
-        jitter=0.95,
-        rotation=1.6,
-        wear=0.33,
-        ribbon_fade=0.26,
-        tracking=12.4,
-        leading=31.5,
-        key_bias={"i": (0.0, 0.5), "l": (0.0, 0.45), "e": (0.35, -0.25), "a": (-0.3, 0.2)},
-        double_strike=0.016,
-        skip_strike=0.014,
-        line_drift=0.18,
-        platen_slant=0.28,
-        margin_left=110,
-        margin_top=128,
-        margin_right=100,
-        strike_heavy=0.85,
-        ink_smear=0.55,
-        baseline_wave=1.1,
-        space_jitter=0.45,
-        seed=1969,
-    ),
-    Typewriter(
-        name="Ivo — technische Olivetti",
-        font_file="FragmentMono-Regular.ttf",
-        size=17.4,
-        ink=(24, 28, 40),
-        paper=(241, 243, 238),
-        jitter=0.7,
-        rotation=1.15,
-        wear=0.22,
-        ribbon_fade=0.18,
-        tracking=11.0,
-        leading=28.2,
-        key_bias={"1": (0.2, -0.35), "2": (-0.15, 0.2), "o": (0.25, 0.15)},
-        double_strike=0.01,
-        skip_strike=0.008,
-        line_drift=0.1,
-        platen_slant=-0.15,
-        margin_left=118,
-        margin_top=116,
-        margin_right=108,
-        strike_heavy=0.45,
-        ink_smear=0.3,
-        baseline_wave=0.7,
-        space_jitter=0.3,
-        seed=1987,
-    ),
-    Typewriter(
-        name="Joke — vooroorlogse Remington",
-        font_file="SpecialElite-Regular.ttf",
-        size=20.4,
-        ink=(38, 32, 26),
-        paper=(228, 216, 188),
-        jitter=1.5,
-        rotation=2.6,
-        wear=0.58,
-        ribbon_fade=0.22,
-        tracking=13.8,
-        leading=35.5,
-        key_bias={
-            "e": (0.7, -0.6),
-            "a": (-0.55, 0.4),
-            "n": (0.35, 0.5),
-            "r": (-0.4, -0.35),
-            "t": (0.15, 0.7),
-            "o": (0.45, -0.25),
-        },
-        double_strike=0.03,
-        skip_strike=0.022,
-        line_drift=0.38,
-        platen_slant=0.55,
-        margin_left=100,
-        margin_top=145,
-        margin_right=95,
-        strike_heavy=0.62,
-        ink_smear=0.9,
-        baseline_wave=2.1,
-        space_jitter=0.7,
-        seed=1959,
-    ),
-]
+def load_text(hand: Hand) -> str:
+    path = os.path.join(TEXT_DIR, hand.tekstbestand)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Tekstbestand ontbreekt: {path}")
+    with open(path, encoding="utf-8") as handle:
+        return handle.read().replace("\r\n", "\n").replace("\t", "    ")
 
 
-def load_font(tw: Typewriter) -> GlyphCache:
-    path = os.path.join(FONT_DIR, tw.font_file)
+def load_font(hand: Hand) -> GlyphCache:
+    path = os.path.join(FONT_DIR, hand.font)
     font = TTFont(path)
     if "fvar" in font:
-        weight = tw.weight or 400
-        font = instantiateVariableFont(font, {"wght": weight})
-    cmap = font.getBestCmap() or {}
+        font = instantiateVariableFont(font, {"wght": hand.gewicht or 400})
     return GlyphCache(
         font=font,
-        cmap=cmap,
+        cmap=font.getBestCmap() or {},
         glyph_set=font.getGlyphSet(),
         units_per_em=font["head"].unitsPerEm,
     )
@@ -625,119 +134,50 @@ def glyph_advance(cache: GlyphCache, ch: str) -> float:
         return cache.advances[ch]
     name = cache.cmap.get(ord(ch))
     if name is None:
-        cache.advances[ch] = 0.5
-        return 0.5
-    gs = cache.glyph_set[name]
-    cache.advances[ch] = float(gs.width) / cache.units_per_em
+        cache.advances[ch] = 0.48
+        return 0.48
+    cache.advances[ch] = float(cache.glyph_set[name].width) / cache.units_per_em
     return cache.advances[ch]
 
 
 def glyph_path(cache: GlyphCache, ch: str) -> Optional[str]:
     if ch in cache.paths:
-        return cache.paths[ch]
+        return cache.paths[ch] or None
     name = cache.cmap.get(ord(ch))
     if name is None:
         cache.paths[ch] = ""
         return None
     pen = SVGPathPen(cache.glyph_set)
-    # Font space: y-up. SVG: y-down. Scale to 1em, flip Y, shift to baseline.
     transform = (1 / cache.units_per_em, 0, 0, -1 / cache.units_per_em, 0, 0)
-    tpen = TransformPen(pen, transform)
-    cache.glyph_set[name].draw(tpen)
+    cache.glyph_set[name].draw(TransformPen(pen, transform))
     d = pen.getCommands()
     cache.paths[ch] = d
     return d or None
 
 
-NUM_RE = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?")
-
-
 def perturb_path(d: str, rng: random.Random, amount: float) -> str:
-    """Nudge every coordinate so two strikes of the same letter differ."""
-
     def repl(match: re.Match) -> str:
         value = float(match.group(0))
         if abs(value) < 1e-9:
             return match.group(0)
-        jittered = value + rng.uniform(-amount, amount)
-        return f"{jittered:.4f}"
+        return f"{value + rng.uniform(-amount, amount):.4f}"
 
     return NUM_RE.sub(repl, d)
 
 
-def warp_path(d: str, rng: random.Random, squash_x: float, squash_y: float) -> str:
-    """Independent X/Y squash so the slug is never a uniform scale of the master."""
+def warp_path(d: str, squash_x: float, squash_y: float) -> str:
     parts = []
-    last_was_num = False
-    index = 0
     pos = 0
+    index = 0
     for match in NUM_RE.finditer(d):
         parts.append(d[pos : match.start()])
         value = float(match.group(0))
-        # Alternate x,y in SVG path numbers is not strictly true for all
-        # commands, but for glyph outlines (M/L/C/Q) it is close enough,
-        # and the extra chaos helps uniqueness.
-        if index % 2 == 0:
-            value *= squash_x
-        else:
-            value *= squash_y
+        value *= squash_x if index % 2 == 0 else squash_y
         parts.append(f"{value:.4f}")
         index += 1
         pos = match.end()
-        last_was_num = True
     parts.append(d[pos:])
-    _ = last_was_num
     return "".join(parts)
-
-
-def rgb(color: Tuple[int, int, int], fade: float = 0.0, rng: Optional[random.Random] = None) -> str:
-    r, g, b = color
-    if rng is not None:
-        r = int(max(0, min(255, r + rng.randint(-8, 8))))
-        g = int(max(0, min(255, g + rng.randint(-8, 8))))
-        b = int(max(0, min(255, b + rng.randint(-8, 8))))
-    r = int(r + (255 - r) * fade)
-    g = int(g + (255 - g) * fade)
-    b = int(b + (255 - b) * fade)
-    return f"rgb({r},{g},{b})"
-
-
-def paper_svg_fill(paper: Tuple[int, int, int]) -> str:
-    r, g, b = paper
-    return (
-        f'<rect width="100%" height="100%" fill="rgb({r},{g},{b})"/>'
-        f'<rect width="100%" height="100%" fill="url(#grain)" opacity="0.35"/>'
-        f'<rect width="100%" height="100%" fill="url(#age)" opacity="0.55"/>'
-    )
-
-
-def svg_defs(paper: Tuple[int, int, int], seed: int) -> str:
-    rng = random.Random(seed)
-    r, g, b = paper
-    spots = []
-    for i in range(18):
-        spots.append(
-            f'<feTurbulence type="fractalNoise" baseFrequency="{0.6 + rng.random()*0.8:.3f}" '
-            f'numOctaves="3" seed="{rng.randint(1, 9999)}" result="n{i}"/>'
-        )
-    # Keep defs compact: one turbulence + a warm vignette.
-    return f"""
-  <defs>
-    <filter id="ink" x="-20%" y="-20%" width="140%" height="140%">
-      <feTurbulence type="fractalNoise" baseFrequency="1.8" numOctaves="2" seed="{seed}" result="t"/>
-      <feDisplacementMap in="SourceGraphic" in2="t" scale="0.55" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="grain">
-      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4" seed="{seed + 7}" result="g"/>
-      <feColorMatrix type="matrix" values="0 0 0 0 {r/255:.3f}  0 0 0 0 {g/255:.3f}  0 0 0 0 {b/255:.3f}  0 0 0 0.18 0"/>
-    </filter>
-    <radialGradient id="age" cx="50%" cy="40%" r="75%">
-      <stop offset="0%" stop-color="rgb({min(255,r+8)},{min(255,g+6)},{max(0,b-4)})" stop-opacity="0"/>
-      <stop offset="70%" stop-color="rgb({r},{g},{b})" stop-opacity="0"/>
-      <stop offset="100%" stop-color="rgb({max(0,r-28)},{max(0,g-32)},{max(0,b-38)})" stop-opacity="0.28"/>
-    </radialGradient>
-  </defs>
-"""
 
 
 def fallback_char(ch: str) -> str:
@@ -766,146 +206,228 @@ def fallback_char(ch: str) -> str:
     return ch.translate(table)
 
 
-def type_document(text: str, tw: Typewriter, cache: GlyphCache) -> str:
-    rng = random.Random(tw.seed)
-    lines = text.replace("\t", "    ").split("\n")
-    max_x = PAGE_W - tw.margin_right
-    em = tw.size
+def rgb(color: Tuple[int, int, int], fade: float = 0.0, rng: Optional[random.Random] = None) -> str:
+    r, g, b = color
+    if rng is not None:
+        r = int(max(0, min(255, r + rng.randint(-10, 10))))
+        g = int(max(0, min(255, g + rng.randint(-10, 10))))
+        b = int(max(0, min(255, b + rng.randint(-10, 10))))
+    r = int(r + (220 - r) * fade)
+    g = int(g + (220 - g) * fade)
+    b = int(b + (220 - b) * fade)
+    return f"rgb({r},{g},{b})"
 
-    chars_svg: List[str] = []
-    y = tw.margin_top
-    char_index = 0
-    total_chars = max(1, sum(len(line) for line in lines))
 
-    for line_i, line in enumerate(lines):
-        x = tw.margin_left + line_i * tw.line_drift
-        # Paper feed is never perfectly even.
-        y += rng.uniform(-0.35, 0.55)
-        wave = math.sin(line_i * 0.55 + tw.seed) * tw.baseline_wave
-        line_rot = rng.uniform(-0.18, 0.18)
+def measure(text: str, cache: GlyphCache, em: float, tracking: float) -> float:
+    width = 0.0
+    for ch in text:
+        glyph = ch if ch in cache.cmap else fallback_char(ch)
+        if glyph == " ":
+            width += 0.34 * em
+        else:
+            width += max(0.18, glyph_advance(cache, glyph)) * em * tracking
+    return width
 
-        for col, raw in enumerate(line):
-            ch = raw if raw in cache.cmap else fallback_char(raw)
-            progress = char_index / total_chars
-            fade = tw.ribbon_fade * (0.35 * progress + 0.65 * (x / PAGE_W))
-            fade += rng.uniform(-0.04, 0.04)
-            fade = max(0.0, min(0.72, fade))
 
-            if ch == " ":
-                x += tw.tracking + rng.uniform(-tw.space_jitter, tw.space_jitter)
-                char_index += 1
-                continue
+def wrap_line(line: str, cache: GlyphCache, em: float, tracking: float, max_width: float) -> List[str]:
+    indent = len(line) - len(line.lstrip(" "))
+    prefix = line[:indent]
+    body = line[indent:]
+    if not body:
+        return [line]
+    if measure(line, cache, em, tracking) <= max_width:
+        return [line]
+    words = body.split(" ")
+    lines: List[str] = []
+    current: List[str] = []
+    for word in words:
+        trial = prefix + (" ".join(current + [word]) if current else word)
+        if current and measure(trial, cache, em, tracking) > max_width:
+            lines.append(prefix + " ".join(current))
+            current = [word]
+            prefix = " " * indent
+        else:
+            current.append(word)
+    if current:
+        lines.append(prefix + " ".join(current))
+    return lines or [line]
 
-            d = glyph_path(cache, ch)
-            if not d:
-                x += tw.tracking
-                char_index += 1
-                continue
 
-            if rng.random() < tw.skip_strike:
-                # Weak strike from a dry ribbon — never drop the letter.
-                fade = min(0.42, fade + rng.uniform(0.12, 0.22))
-
-            bias = tw.key_bias.get(ch, (0.0, 0.0))
-            jx = rng.uniform(-tw.jitter, tw.jitter) + bias[0]
-            jy = rng.uniform(-tw.jitter, tw.jitter) + bias[1] + wave
-            rot = rng.uniform(-tw.rotation, tw.rotation) + line_rot
-            # Harder/softer strike: independent x/y so the letter is not a clone.
-            strike = 1.0 + rng.uniform(-0.045, 0.06) * tw.strike_heavy
-            squash_x = strike * rng.uniform(0.97, 1.04)
-            squash_y = strike * rng.uniform(0.96, 1.05)
-            # Unique outline noise for this strike.
-            amount = 0.004 + tw.wear * 0.012
-            unique = perturb_path(d, rng, amount)
-            unique = warp_path(unique, rng, squash_x, squash_y)
-
-            opacity = 0.72 + rng.uniform(0.0, 0.28) * tw.strike_heavy
-            opacity *= 1.0 - fade * 0.85
-            opacity = max(0.22, min(0.98, opacity))
-            fill = rgb(tw.ink, fade=fade * 0.55, rng=rng)
-
-            smear_dx = rng.uniform(-0.03, 0.05) * tw.ink_smear
-            smear_dy = rng.uniform(-0.02, 0.04) * tw.ink_smear
-            smear_op = opacity * 0.28 * tw.ink_smear
-
-            scale = em
-            transform = (
-                f"translate({x + jx:.2f} {y + jy:.2f}) "
-                f"rotate({rot:.3f}) scale({scale:.3f})"
+def paper_background(hand: Hand) -> str:
+    r, g, b = hand.papier
+    parts = [f'<rect width="100%" height="100%" fill="rgb({r},{g},{b})"/>']
+    if hand.lijntjes:
+        y = hand.marge_boven
+        lines = []
+        while y < PAGE_H - 40:
+            lines.append(
+                f'<line x1="0" y1="{y:.1f}" x2="{PAGE_W}" y2="{y:.1f}" '
+                f'stroke="#8eafd0" stroke-width="1.15" opacity="0.55"/>'
             )
-            clip_attr = ""
-            extra = ""
+            y += hand.regelafstand
+        parts.append('<g id="schriftlijnen">' + "".join(lines) + "</g>")
+    if hand.rode_marge:
+        x = hand.marge_links - 28
+        parts.append(
+            f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{PAGE_H}" '
+            f'stroke="#d27a7a" stroke-width="1.6" opacity="0.55"/>'
+        )
+    parts.append('<rect width="100%" height="100%" fill="url(#age)"/>')
+    return "\n  ".join(parts)
 
-            def esc_path(p: str) -> str:
-                return xml.escape(p, {"\"": "&quot;"})
 
-            body = (
-                f'<g transform="{transform}" filter="url(#ink)"{clip_attr}>'
-                f'<path d="{esc_path(unique)}" fill="{fill}" fill-opacity="{opacity:.3f}"/>'
+def svg_defs(hand: Hand) -> str:
+    r, g, b = hand.papier
+    return f"""
+  <defs>
+    <radialGradient id="age" cx="48%" cy="38%" r="78%">
+      <stop offset="0%" stop-color="rgb({min(255, r + 6)},{min(255, g + 4)},{b})" stop-opacity="0"/>
+      <stop offset="100%" stop-color="rgb({max(0, r - 24)},{max(0, g - 28)},{max(0, b - 34)})" stop-opacity="0.22"/>
+    </radialGradient>
+  </defs>
+"""
+
+
+def pen_params(hand: Hand) -> Tuple[float, float, float]:
+    """stroke width (em), smear, pressure variation."""
+    if hand.pen == "vulpen":
+        return 0.018, 0.7, 0.08
+    if hand.pen == "potlood":
+        return 0.012, 0.15, 0.05
+    if hand.pen == "stift":
+        return 0.04, 0.45, 0.04
+    return 0.01, 0.28, 0.045
+
+
+def write_line(
+    line: str,
+    x0: float,
+    y: float,
+    hand: Hand,
+    cache: GlyphCache,
+    rng: random.Random,
+    line_i: int,
+) -> Tuple[str, int]:
+    em = hand.grootte
+    sl = hand.slordig
+    stroke_w, smear, pressure = pen_params(hand)
+    word_slant = hand.helling + rng.uniform(-2.2, 2.2) * sl
+    parts: List[str] = []
+    x = x0
+    drawn = 0
+    max_x = PAGE_W - hand.marge_rechts
+
+    # Slow drift of the baseline along the line (tired hand).
+    phase = line_i * 0.37 + hand.zaad * 0.01
+
+    for col, raw in enumerate(line):
+        ch = raw if raw in cache.cmap else fallback_char(raw)
+        if ch == " ":
+            x += 0.34 * em + rng.uniform(-0.12, 0.22) * em * sl
+            continue
+
+        d = glyph_path(cache, ch)
+        if not d:
+            x += 0.4 * em
+            continue
+
+        wave = math.sin(x / 70.0 + phase) * (1.6 + 7.5 * sl)
+        wave += math.sin(x / 180.0 + phase * 1.7) * (0.8 + 3.0 * sl)
+        jx = rng.uniform(-1.1, 1.1) * (0.4 + sl)
+        jy = rng.uniform(-1.3, 1.3) * (0.5 + sl) + wave
+        rot = word_slant + rng.uniform(-3.8, 3.8) * sl
+        # i-dots and t-bars wander a bit extra.
+        if ch.lower() in "ijt":
+            rot += rng.uniform(-1.4, 1.4) * sl
+            jy += rng.uniform(-0.8, 0.9) * sl
+
+        squash_x = 1.0 + rng.uniform(-0.05, 0.06) * (0.4 + sl)
+        squash_y = 1.0 + rng.uniform(-pressure, pressure)
+        amount = 0.0035 + sl * 0.011
+        unique = warp_path(perturb_path(d, rng, amount), squash_x, squash_y)
+
+        tired = min(0.28, (y / PAGE_H) * 0.18 * sl)
+        opacity = 0.78 + rng.uniform(-0.12, 0.18) * (0.5 + sl) - tired
+        if hand.pen == "potlood":
+            opacity *= 0.72
+        opacity = max(0.38, min(0.96, opacity))
+        fill = rgb(hand.inkt, fade=tired + rng.uniform(0, 0.08 * sl), rng=rng)
+
+        transform = (
+            f"translate({x + jx:.2f} {y + jy:.2f}) "
+            f"rotate({rot:.3f}) scale({em:.3f})"
+        )
+        path = xml.escape(unique, {"\"": "&quot;"})
+        stroke = (
+            f' stroke="{fill}" stroke-width="{stroke_w:.4f}" '
+            f'stroke-linejoin="round" stroke-linecap="round"'
+        )
+        body = (
+            f'<g transform="{transform}">'
+            f'<path d="{path}" fill="{fill}" fill-opacity="{opacity:.3f}"{stroke}/>'
+        )
+        if smear > 0.35 and rng.random() < 0.45 * smear:
+            ghost = perturb_path(unique, rng, amount * 0.5)
+            dx = rng.uniform(0.004, 0.018) * smear
+            dy = rng.uniform(-0.01, 0.012) * smear
+            body += (
+                f'<path d="{xml.escape(ghost, {"\"": "&quot;"})}" fill="{fill}" '
+                f'fill-opacity="{opacity * 0.22:.3f}" '
+                f'transform="translate({dx:.3f} {dy:.3f})"/>'
             )
-            if tw.ink_smear > 0.2 and rng.random() < 0.7:
-                smear_path = perturb_path(unique, rng, amount * 0.6)
-                body += (
-                    f'<path d="{esc_path(smear_path)}" fill="{fill}" '
-                    f'fill-opacity="{smear_op:.3f}" transform="translate({smear_dx:.3f} {smear_dy:.3f})"/>'
-                )
-            body += "</g>"
+        body += "</g>"
+        parts.append(body)
+        drawn += 1
 
-            if rng.random() < tw.double_strike:
-                dx = rng.uniform(0.6, 1.6)
-                dy = rng.uniform(-0.5, 0.5)
-                second = perturb_path(d, rng, amount)
-                second = warp_path(second, rng, squash_x * rng.uniform(0.98, 1.02), squash_y)
-                t2 = (
-                    f"translate({x + jx + dx:.2f} {y + jy + dy:.2f}) "
-                    f"rotate({rot + rng.uniform(-0.4, 0.4):.3f}) scale({scale:.3f})"
-                )
-                body += (
-                    f'<g transform="{t2}" filter="url(#ink)">'
-                    f'<path d="{esc_path(second)}" fill="{fill}" '
-                    f'fill-opacity="{opacity * 0.55:.3f}"/>'
-                    f"</g>"
-                )
-
-            chars_svg.append(extra + body)
-            if rng.random() < 0.07 * tw.ink_smear:
-                for _ in range(rng.randint(1, 3)):
-                    sx = x + jx + rng.uniform(-1.2, em * 0.75)
-                    sy = y + jy + rng.uniform(-em * 0.85, 2.0)
-                    sr = rng.uniform(0.12, 0.48)
-                    chars_svg.append(
-                        f'<circle cx="{sx:.2f}" cy="{sy:.2f}" r="{sr:.2f}" '
-                        f'fill="{fill}" fill-opacity="{opacity * 0.32:.3f}"/>'
-                    )
-            advance = max(tw.tracking * 0.85, glyph_advance(cache, ch) * em * 0.92)
-            # Mix monospace carriage with the real glyph width so columns wander.
-            step = tw.tracking * 0.72 + advance * 0.28
-            x += step + rng.uniform(-0.35, 0.45)
-            char_index += 1
-
-            if x > max_x:
-                break
-
-        y += tw.leading + rng.uniform(-0.4, 0.8)
-        if y > PAGE_H - 80:
+        step = max(0.16, glyph_advance(cache, ch)) * em * hand.tracking
+        step += rng.uniform(-0.06, 0.08) * em * sl
+        x += step
+        if x > max_x + 40:
             break
 
-    slant = tw.platen_slant
-    inner = "\n".join(chars_svg)
+    return "".join(parts), drawn
+
+
+def type_document(text: str, hand: Hand, cache: GlyphCache) -> str:
+    rng = random.Random(hand.zaad)
+    em = hand.grootte
+    max_width = PAGE_W - hand.marge_links - hand.marge_rechts
+    y = hand.marge_boven
+    blocks: List[str] = []
+    line_i = 0
+    page_rot = rng.uniform(-0.45, 0.45) + hand.helling * 0.02
+
+    for raw_line in text.split("\n"):
+        if raw_line.strip() == "":
+            y += hand.regelafstand * (0.45 + rng.uniform(-0.05, 0.08))
+            continue
+        visual_lines = wrap_line(raw_line, cache, em, hand.tracking, max_width)
+        for visual in visual_lines:
+            if y > PAGE_H - 70:
+                break
+            indent = len(visual) - len(visual.lstrip(" "))
+            x0 = hand.marge_links + indent * (0.28 * em) + line_i * (0.12 * hand.slordig)
+            x0 += rng.uniform(-1.8, 2.4) * hand.slordig
+            svg, _ = write_line(visual.lstrip(" "), x0, y, hand, cache, rng, line_i)
+            blocks.append(svg)
+            y += hand.regelafstand + rng.uniform(-1.2, 1.8) * hand.slordig
+            line_i += 1
+        if y > PAGE_H - 70:
+            break
+
+    inner = "\n".join(blocks)
     return (
-        f'<g transform="rotate({slant:.3f} {PAGE_W/2:.0f} {PAGE_H/2:.0f})">\n'
+        f'<g transform="rotate({page_rot:.3f} {PAGE_W/2:.0f} {PAGE_H/2:.0f})">\n'
         f"{inner}\n"
         f"</g>"
     )
 
 
-def write_svg(path: str, tw: Typewriter, body: str) -> None:
-    r, g, b = tw.paper
+def write_svg(path: str, hand: Hand, body: str) -> None:
     svg = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{PAGE_W}" height="{PAGE_H}" viewBox="0 0 {PAGE_W} {PAGE_H}">
-{svg_defs(tw.paper, tw.seed)}
-  <rect width="100%" height="100%" fill="rgb({r},{g},{b})"/>
-  <rect width="100%" height="100%" fill="url(#age)"/>
+{svg_defs(hand)}
+  {paper_background(hand)}
   {body}
 </svg>
 """
@@ -913,35 +435,34 @@ def write_svg(path: str, tw: Typewriter, body: str) -> None:
         handle.write(svg)
 
 
-def paper_grain_png(img: Image.Image, tw: Typewriter) -> Image.Image:
-    rng = np.random.default_rng(tw.seed)
+def paper_grain_png(img: Image.Image, hand: Hand) -> Image.Image:
+    rng = np.random.default_rng(hand.zaad)
     w, h = img.size
     base = np.array(img).astype(np.float32)
-    grain = rng.normal(0, 1.6, (h, w, 1)).astype(np.float32)
-    # Fibrous paper: stretched noise
+    grain = rng.normal(0, 1.5, (h, w, 1)).astype(np.float32)
     fibre = rng.normal(0, 1.0, (h, max(1, w // 18), 1)).astype(np.float32)
     fibre = np.repeat(fibre, 18, axis=1)
     if fibre.shape[1] < w:
-        pad = np.repeat(fibre[:, -1:, :], w - fibre.shape[1], axis=1)
-        fibre = np.concatenate([fibre, pad], axis=1)
+        fibre = np.concatenate(
+            [fibre, np.repeat(fibre[:, -1:, :], w - fibre.shape[1], axis=1)], axis=1
+        )
     fibre = fibre[:, :w]
-    speck = (rng.random((h, w)) < 0.0015).astype(np.float32) * rng.uniform(-10, 8, (h, w))
-    aged = np.zeros_like(base)
+    speck = (rng.random((h, w)) < 0.0012).astype(np.float32) * rng.uniform(-9, 7, (h, w))
     yy, xx = np.mgrid[0:h, 0:w]
-    cx, cy = w / 2, h / 2
-    dist = np.sqrt(((xx - cx) / w) ** 2 + ((yy - cy) / h) ** 2)
-    vignette = np.clip((dist - 0.35) * 38, 0, 22)
-    aged[..., 0] -= vignette * 0.9
-    aged[..., 1] -= vignette * 1.1
-    aged[..., 2] -= vignette * 1.4
-    out = base + grain + fibre * 2.4 + speck[..., None] + aged
-    out = np.clip(out, 0, 255).astype(np.uint8)
+    dist = np.sqrt(((xx - w / 2) / w) ** 2 + ((yy - h / 2) / h) ** 2)
+    vig = np.clip((dist - 0.38) * 32, 0, 18)
+    aged = np.zeros_like(base)
+    aged[..., 0] -= vig * 0.85
+    aged[..., 1] -= vig * 1.05
+    aged[..., 2] -= vig * 1.3
+    out = np.clip(base + grain + fibre * 2.1 + speck[..., None] + aged, 0, 255).astype(np.uint8)
     result = Image.fromarray(out, mode="RGB")
-    # Soften digital edges of the ink a touch.
-    return result.filter(ImageFilter.SMOOTH)
+    if hand.pen == "potlood":
+        result = result.filter(ImageFilter.SMOOTH)
+    return result
 
 
-def render_png(svg_path: str, png_path: str, tw: Typewriter) -> None:
+def render_png(svg_path: str, png_path: str, hand: Hand) -> None:
     cairosvg.svg2png(
         url=svg_path,
         write_to=png_path,
@@ -949,47 +470,108 @@ def render_png(svg_path: str, png_path: str, tw: Typewriter) -> None:
         output_height=PAGE_H * PNG_SCALE,
     )
     img = Image.open(png_path).convert("RGB")
-    img = paper_grain_png(img, tw)
+    img = paper_grain_png(img, hand)
     img.save(png_path, "PNG", dpi=(300, 300), optimize=True, compress_level=9)
 
 
-def main() -> None:
-    os.makedirs(SVG_DIR, exist_ok=True)
-    os.makedirs(PNG_DIR, exist_ok=True)
-
-    index_rows = []
-    for (slug, title, text), tw in zip(SAMPLE_TEXTS, TYPEWRITERS):
-        print(f"Typen: {slug}  ({tw.name})")
-        cache = load_font(tw)
-        body = type_document(text, tw, cache)
-        svg_path = os.path.join(SVG_DIR, f"{slug}.svg")
-        png_path = os.path.join(PNG_DIR, f"{slug}.png")
-        write_svg(svg_path, tw, body)
-        render_png(svg_path, png_path, tw)
-        index_rows.append((slug, title, tw.name, os.path.basename(svg_path), os.path.basename(png_path)))
-
-    readme = [
-        "# Tien getypte geschriften",
+def write_readme(rows: List[Tuple[str, str, str, str, str]]) -> None:
+    lines = [
+        "# Tien handschriften",
         "",
-        "Voorbeeldteksten die eruitzien alsof ze op een echte schrijfmachine zijn getikt.",
-        "Elke letter is een eigen vectorpad: andere rotatie, inkt, slijtage en omtrek,",
-        "dus twee keer dezelfde `e` is nooit identiek.",
+        "Voorbeeldteksten die eruitzien als écht handschrift: elke letter is een",
+        "eigen vectorpad (andere helling, druk, inkt en omtrek).",
         "",
-        "Opnieuw maken:",
+        "## Tekst aanpassen",
+        "",
+        "1. Open een bestand in `teksten/` (gewoon een `.txt`).",
+        "2. Zet er je eigen tekst in. Lange regels worden automatisch omgebroken.",
+        "3. Genereer opnieuw:",
         "",
         "```bash",
         "python3 geschriften/generate_geschriften.py",
         "```",
         "",
-        "| # | Geschrift | Machine | SVG | PNG |",
-        "|---|-----------|---------|-----|-----|",
+        "Alleen één blad:",
+        "",
+        "```bash",
+        "python3 geschriften/generate_geschriften.py 01-anna-brief",
+        "```",
+        "",
+        "Handschrift zelf (font, inktkleur, slordigheid, vulpen/balpen/potlood,",
+        "gelinieerd papier) pas je aan in `stijlen.json`.",
+        "",
+        "| # | Geschrift | Hand | SVG | PNG | tekst |",
+        "|---|-----------|------|-----|-----|-------|",
     ]
-    for i, (slug, title, machine, svg_name, png_name) in enumerate(index_rows, 1):
-        readme.append(f"| {i} | {title} | {machine} | [svg/{svg_name}](svg/{svg_name}) | [png/{png_name}](png/{png_name}) |")
-    readme.append("")
+    for i, (slug, title, hand, svg_name, png_name) in enumerate(rows, 1):
+        lines.append(
+            f"| {i} | {title} | {hand} | [svg/{svg_name}](svg/{svg_name}) | "
+            f"[png/{png_name}](png/{png_name}) | [teksten/{slug}.txt](teksten/{slug}.txt) |"
+        )
+    lines.append("")
     with open(os.path.join(ROOT, "README.md"), "w", encoding="utf-8") as handle:
-        handle.write("\n".join(readme) + "\n")
-    print("Klaar.")
+        handle.write("\n".join(lines) + "\n")
+
+
+def select_hands(hands: List[Hand], ids: List[str]) -> List[Hand]:
+    if not ids:
+        return hands
+    chosen = []
+    for needle in ids:
+        matches = [h for h in hands if h.id == needle or h.id.startswith(needle)]
+        if not matches:
+            known = ", ".join(h.id for h in hands)
+            raise SystemExit(f"Onbekend id '{needle}'. Kies uit: {known}")
+        for hand in matches:
+            if hand not in chosen:
+                chosen.append(hand)
+    return chosen
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Maak handgeschreven SVG- en PNG-bladen van de teksten in teksten/."
+    )
+    parser.add_argument(
+        "ids",
+        nargs="*",
+        help="id of begin van de id, bijvoorbeeld 01 of 01-anna-brief. Leeg = alle tien.",
+    )
+    parser.add_argument("--lijst", action="store_true", help="Toon de tien id's en stop.")
+    args = parser.parse_args(argv)
+
+    hands = load_styles()
+    if args.lijst:
+        for hand in hands:
+            print(f"{hand.id:24}  {hand.titel}  ({hand.hand})")
+        return
+
+    os.makedirs(SVG_DIR, exist_ok=True)
+    os.makedirs(PNG_DIR, exist_ok=True)
+    chosen = select_hands(hands, args.ids)
+
+    for hand in chosen:
+        print(f"Schrijven: {hand.id}  ({hand.hand})")
+        cache = load_font(hand)
+        body = type_document(load_text(hand), hand, cache)
+        svg_path = os.path.join(SVG_DIR, f"{hand.id}.svg")
+        png_path = os.path.join(PNG_DIR, f"{hand.id}.png")
+        write_svg(svg_path, hand, body)
+        render_png(svg_path, png_path, hand)
+
+    rows = []
+    for hand in load_styles():
+        rows.append(
+            (
+                hand.id,
+                hand.titel,
+                hand.hand,
+                f"{hand.id}.svg",
+                f"{hand.id}.png",
+            )
+        )
+    write_readme(rows)
+    print("Klaar. Teksten staan in geschriften/teksten/")
 
 
 if __name__ == "__main__":
