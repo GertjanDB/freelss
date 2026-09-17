@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2430">
+  <meta name="description" content="Weet of je baby een mutsje op moet bij ontslag uit de materniteit in Jette. Actueel KMI-weer.">
+  <title>Mutsje? · Ontslag materniteit Jette</title>
+  <link rel="icon" href="img/icon.png">
+  <link rel="apple-touch-icon" href="img/icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="stage">
+    <div class="phone" role="application" aria-label="Mutsje app">
+      <div class="phone-bezel">
+        <header class="status-bar">
+          <label class="sr-only" for="clock">Klok</label>
+          <input id="clock" class="clock" maxlength="5" spellcheck="false" autocomplete="off" inputmode="numeric" value="12:00" aria-label="Uur">
+          <span class="punch" aria-hidden="true"></span>
+          <div class="status-right" aria-hidden="true">
+            <span class="signal"><i></i><i></i><i></i><i></i></span>
+            <span class="wifi"><b></b><b></b><b></b></span>
+            <span class="fiveg">5G</span>
+            <span class="battery"><span>87%</span><em></em></span>
+          </div>
+        </header>
+
+        <main class="app" id="app">
+          <section class="hero yes-hat" id="hero">
+            <img id="hero-img" src="img/hero.png" alt="Slapende baby met mosterdgeel mutsje voor de bewolkte lucht van Jette">
+            <div class="leaves" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            <div class="hero-fade"></div>
+          </section>
+
+          <section class="sheet">
+            <div class="kicker">
+              <span>Ontslag materniteit · Jette</span>
+              <span class="kmi">KMI</span>
+            </div>
+
+            <article class="verdict yes" id="verdict">
+              <div class="stamp" id="stamp">Mutsje op</div>
+              <h1 id="headline">Ja. Mutsje op, schat.</h1>
+              <p class="lead" id="lead">Het KMI-weer in Jette is te koel en winderig voor een bloot hoofdje.</p>
+              <div class="temp-row">
+                <div class="big-temp" id="temp">17<small>°</small></div>
+                <p class="meta" id="condition">Zwaar bewolkt, droog<br>Jette · Ukkel-station</p>
+              </div>
+              <div class="stats">
+                <div class="stat"><b id="feels">14°</b><span>gevoel</span></div>
+                <div class="stat"><b id="wind">ZW 22</b><span>km/u</span></div>
+                <div class="stat"><b id="range">12–19°</b><span>vandaag</span></div>
+              </div>
+            </article>
+
+            <div class="hours" id="hours" aria-label="Uurverwachting"></div>
+
+            <article class="card">
+              <h2>KMI nu</h2>
+              <p id="bulletin"></p>
+            </article>
+
+            <article class="card">
+              <h2>Bij de deur</h2>
+              <ul class="checklist" id="tips"></ul>
+            </article>
+          </section>
+        </main>
+
+        <nav class="samsung-nav" aria-label="Telefoonknoppen">
+          <button type="button" id="btn-recents" aria-label="Recents"><span class="icon-recents"></span></button>
+          <button type="button" id="btn-home" aria-label="Home"><span class="icon-home"></span></button>
+          <button type="button" id="btn-back" aria-label="Terug"><span class="icon-back"></span></button>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
