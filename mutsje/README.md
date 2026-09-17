@@ -1,19 +1,18 @@
 # Mutsje?
 
-App voor bij het **ontslag op de materniteit** (UZ Brussel / Jette): moet de baby een mutsje op?
+HTML-pagina voor bij het **ontslag op de materniteit** (UZ Brussel / Jette): moet de baby een mutsje op?
 
-De visual gebruikt het actuele weer van het **KMI** voor Jette (bulletin + meting Ukkel, het officiële station voor Brussel) en een uurverwachting zodat je ziet of het mutsje ook later nog nodig is.
+Het is één bestand: **`mutsje.html`**. Dubbelklikken of openen in de browser is genoeg. Geen installatie, geen server.
 
-## Starten
+De pagina toont het actuele **KMI-weer in Jette** (bulletin + meting Ukkel) en of het koppie een mutsje nodig heeft.
+
+## Openen
 
 ```bash
-cd mutsje
-python3 server.py
+open mutsje/mutsje.html
 ```
 
-Open daarna [http://127.0.0.1:8765/](http://127.0.0.1:8765/).
-
-Zonder server werkt de pagina ook, met het KMI-bulletin als basis en een live meting voor Jette.
+of sleep `mutsje.html` in Chrome / Safari / Edge.
 
 ## Advies (pasgeborene, naar buiten)
 
