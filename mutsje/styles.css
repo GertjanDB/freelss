@@ -217,6 +217,7 @@ body::before {
   overflow: auto;
   overscroll-behavior: contain;
   color: var(--ink);
+  background: #f7efe4;
   scrollbar-width: none;
 }
 
