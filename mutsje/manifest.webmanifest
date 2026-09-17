@@ -1,0 +1,17 @@
+{
+  "name": "Mutsje? Ontslag materniteit Jette",
+  "short_name": "Mutsje?",
+  "description": "Weet of je baby een mutsje op moet bij ontslag uit de materniteit in Jette, op basis van het KMI-weer.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#1c2430",
+  "theme_color": "#1c2430",
+  "lang": "nl",
+  "icons": [
+    {
+      "src": "img/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
