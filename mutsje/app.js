@@ -152,7 +152,7 @@ function renderHours(hourly) {
   (hourly || []).slice(0, 8).forEach((item) => {
     const raining = (item.precipMm || 0) > 0 || (item.rainChance || 0) >= 50;
     const level = hatFor(item.temp, item.feelsLike ?? item.temp, item.windKmh || 0, raining, raining);
-    const hat = level === "no" ? "🌬️" : level === "light" ? "🧢" : "🧶";
+    const hat = level === "no" ? "vrij" : level === "light" ? "dun" : "muts";
     const el = document.createElement("div");
     el.className = "hour";
     el.innerHTML = `<div class="t">${hourLabel(item.time)}</div><div class="d">${round1(item.temp)}°</div><div class="hat">${hat}</div>`;
