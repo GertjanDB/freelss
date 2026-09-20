@@ -219,14 +219,16 @@ class Player:
         station = self.stations.get(station_id)
         if not station:
             raise KeyError(station_id)
-        self.last_error = ""
         if self.output == "chromecast":
             if self.sink is None:
-                raise CastError(self.last_error or "Chromecast is niet klaar.")
+                raise CastError(
+                    self.last_error or "pychromecast ontbreekt. Op de Pi: sudo ./install.sh"
+                )
             try:
                 self.sink.play(station["url"], station["name"], self.volume)
-            except CastError:
+            except CastError as exc:
                 self.playing = False
+                self.last_error = str(exc)
                 raise
             except Exception as exc:
                 self.playing = False
@@ -234,6 +236,7 @@ class Player:
                     "Acton reageert niet over wifi. Zet hem aan, bronknop op wifi. (%s)"
                     % exc
                 ) from exc
+            self.last_error = ""
             self.current_id = station_id
             self.playing = True
             return self.status()

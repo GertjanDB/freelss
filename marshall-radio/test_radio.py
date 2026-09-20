@@ -78,6 +78,15 @@ class PlayerTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.player.play("bestaatniet")
 
+    def test_keeps_error_when_sink_missing(self):
+        player = Player(self.stations, {"output": "chromecast"})
+        if player.sink is not None:
+            self.skipTest("pychromecast is geïnstalleerd")
+        self.assertTrue(player.last_error)
+        with self.assertRaises(CastError):
+            player.play("radio2")
+        self.assertTrue(player.status()["error"])
+
     def test_cast_error_surfaces(self):
         class Boom(FakeSink):
             def play(self, url, title, volume):
