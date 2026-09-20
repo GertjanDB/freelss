@@ -1,0 +1,9 @@
+{
+  "default": "radio2",
+  "volume": 70,
+  "autostart": true,
+  "port": 8088,
+  "output": "chromecast",
+  "device": "Acton",
+  "host": ""
+}

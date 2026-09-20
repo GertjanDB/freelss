@@ -1,0 +1,79 @@
+[
+  {
+    "id": "radio2",
+    "preset": 1,
+    "name": "Radio 2",
+    "sub": "Vlaams-Brabant",
+    "url": "https://icecast.vrtcdn.be/ra2vlb-high.mp3"
+  },
+  {
+    "id": "radio1",
+    "preset": 2,
+    "name": "Radio 1",
+    "sub": "Nieuws & dualoog",
+    "url": "https://icecast.vrtcdn.be/radio1-high.mp3"
+  },
+  {
+    "id": "stubru",
+    "preset": 3,
+    "name": "Studio Brussel",
+    "sub": "StuBru",
+    "url": "https://icecast.vrtcdn.be/stubru-high.mp3"
+  },
+  {
+    "id": "mnm",
+    "preset": 4,
+    "name": "MNM",
+    "sub": "Hits",
+    "url": "https://icecast.vrtcdn.be/mnm-high.mp3"
+  },
+  {
+    "id": "qmusic",
+    "preset": 5,
+    "name": "Qmusic",
+    "sub": "Q",
+    "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/QMUSIC.mp3"
+  },
+  {
+    "id": "joe",
+    "preset": 6,
+    "name": "Joe",
+    "sub": "Greatest hits",
+    "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/JOE.mp3"
+  },
+  {
+    "id": "nostalgie",
+    "preset": 7,
+    "name": "Nostalgie",
+    "sub": "Vlaanderen",
+    "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/NOSTALGIE_BE.mp3"
+  },
+  {
+    "id": "klara",
+    "preset": 0,
+    "name": "Klara",
+    "sub": "Klassiek",
+    "url": "https://icecast.vrtcdn.be/klara-high.mp3"
+  },
+  {
+    "id": "tijdloze",
+    "preset": 0,
+    "name": "De Tijdloze",
+    "sub": "StuBru",
+    "url": "https://icecast.vrtcdn.be/stubru_tijdloze-high.mp3"
+  },
+  {
+    "id": "relax",
+    "preset": 0,
+    "name": "Radio 2 Relax",
+    "sub": "Unwind",
+    "url": "https://icecast.vrtcdn.be/radio2_relax-high.mp3"
+  },
+  {
+    "id": "topradio",
+    "preset": 0,
+    "name": "TOPradio",
+    "sub": "Dance",
+    "url": "https://str.topradio.be/topradio.mp3"
+  }
+]
