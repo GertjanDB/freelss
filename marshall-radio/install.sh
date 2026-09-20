@@ -11,38 +11,37 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y mpv python3
+apt-get install -y python3 python3-venv python3-pip avahi-daemon
+systemctl enable --now avahi-daemon >/dev/null 2>&1 || true
 
 mkdir -p "$DEST"
-cp -f "$ROOT/radio.html" "$ROOT/radio.py" "$ROOT/stations.json" "$ROOT/config.json" "$DEST/"
+cp -f "$ROOT/radio.html" "$ROOT/radio.py" "$ROOT/stations.json" "$ROOT/config.json" "$ROOT/requirements.txt" "$DEST/"
 chmod +x "$DEST/radio.py"
 
 if [[ -f /etc/marshall-radio-config.json ]]; then
   cp -f /etc/marshall-radio-config.json "$DEST/config.json"
 fi
 
+python3 -m venv "$DEST/venv"
+"$DEST/venv/bin/pip" install --upgrade pip
+"$DEST/venv/bin/pip" install -r "$DEST/requirements.txt"
+
 cat >/etc/systemd/system/marshall-radio.service <<EOF
 [Unit]
-Description=Semi-slimme Marshall-radio
-After=network-online.target sound.target bluetooth.service
+Description=Semi-slimme Marshall-radio over wifi
+After=network-online.target avahi-daemon.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=$DEST
-ExecStartPre=-$DEST/bluetooth-connect.sh
-ExecStart=/usr/bin/python3 $DEST/radio.py
+ExecStart=$DEST/venv/bin/python3 $DEST/radio.py
 Restart=on-failure
-RestartSec=5
+RestartSec=8
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-if [[ -f "$ROOT/bluetooth-connect.sh" ]]; then
-  cp -f "$ROOT/bluetooth-connect.sh" "$DEST/bluetooth-connect.sh"
-  chmod +x "$DEST/bluetooth-connect.sh"
-fi
 
 systemctl daemon-reload
 systemctl enable marshall-radio.service
@@ -50,8 +49,10 @@ systemctl restart marshall-radio.service
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
-echo "Klaar. De radio start nu vanzelf bij het opzetten van de Pi."
+echo "Klaar. De Pi stuurt radio over wifi naar de Acton."
+echo "AUX blijft vrij voor de platenspeler, Bluetooth voor de gsm."
+echo "Bronknop Acton op wifi."
 echo "Zenders wisselen: http://${IP:-pi}:8088"
-echo "Bronknop Acton op AUX (kabel) of Bluetooth."
+echo "Speakers zoeken: $DEST/venv/bin/python3 $DEST/radio.py --discover"
 echo
 systemctl --no-pager --full status marshall-radio.service || true

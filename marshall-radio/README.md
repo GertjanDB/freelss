@@ -1,42 +1,56 @@
-# Semi-slim Marshall
+# Semi-slim Marshall over wifi
 
-De **Acton Multi-Room** uit de doos heeft geen Google Home nodig. Bluetooth en AUX werken met de knoppen op de speaker. Deze map maakt er een radio van die je **aanzet en die speelt** — zonder gsm.
+De Pi speelt radio **over wifi** naar de Acton (Chromecast). **AUX blijft vrij voor de platenspeler. Bluetooth blijft vrij voor de gsm.**
 
 ## Elke dag
 
-1. Speaker aan.
-2. Bronknop op **AUX** (kabel) of **Bluetooth**.
-3. Radio speelt. Klaar.
+1. Acton aan, bronknop op **wifi**.
+2. Pi aan (of laten staan).
+3. Radio speelt. Platenspeler mag in AUX. Gsm koppelt gewoon over Bluetooth.
 
-Geen Marshall-app. Geen Google Home. Geen telefoon.
+## Eerste keer
 
-## Eerste keer — kies één weg
+### 1. Acton één keer op wifi
 
-### A. Computer (snelst, 2 minuten)
+Dat kan de speaker zelf niet. Eén keer Google Home op een telefoon of tablet: Acton op het huisnetwerk zetten. Daarna die app weer vergeten.
 
-1. Zet de bronknop van de Acton op **Bluetooth**.
-2. Duw de knop **3 seconden** in tot het lampje knippert.
-3. Koppel op de computer met **Acton Multi-room**.
-4. Open `radio.html` in Chrome of Edge (slepen mag).
-5. Tik een zender. Geluid gaat naar de speaker.
+### 2. Pi op hetzelfde netwerk
 
-Of: AUX-kabel in de Acton, bronknop op **AUX**, dezelfde pagina openen.
+Wifi of kabel, maakt niet uit — zolang Pi en Acton in hetzelfde huisnetwerk zitten.
 
-### B. Raspberry Pi (gewoon opzetten, daarna nooit meer)
+```
+sudo raspi-config
+```
 
-Pi en speaker samen aan het stekkerblok. Kabel is het stevigst (3,5 mm van de Pi naar AUX op de Acton).
+Systeemopties → Draadloos LAN, wifi-naam en wachtwoord. Of: ethernetkabel in de Pi.
+
+### 3. Radio installeren
 
 ```
 cd marshall-radio
 sudo ./install.sh
 ```
 
-Daarna: `http://<ip-van-de-pi>:8088` als je toch eens van zender wilt wisselen — vanaf een computer op hetzelfde wifi-netwerk. Dagelijks: niks. De Pi start Radio 2 vanzelf.
+Bronknop van de Acton op **wifi**. Radio 2 start vanzelf.
 
-Standaardzender en volume staan in `config.json`.
+Zenders wisselen vanaf een computer: `http://<ip-van-de-pi>:8088`
 
-## Wat je níét moet doen
+Speakers op het netwerk:
 
-De doos zegt Google Home + Marshall-app. Dat is alleen voor wifi, Chromecast en de 7 wifi-presets op de bronknop. Voor radio via deze setup mag die hele circus overgeslagen worden.
+```
+sudo /opt/marshall-radio/venv/bin/python3 /opt/marshall-radio/radio.py --discover
+```
 
-Wil je later tóch die native knop-presets op de speaker zelf: één keer Google Home, daarna internetradio op stand 1–7 zetten, daarna weer zonder gsm. Niet nodig voor semi-slim.
+Als de naam niet “Acton” bevat, zet in `config.json` bij `device` de naam die `--discover` toont. Optioneel `host` op het IP van de speaker als zoeken hapert.
+
+## Wat vrij blijft
+
+| Bron op de Acton | Voor |
+| --- | --- |
+| Wifi | Radio vanaf de Pi |
+| AUX | Platenspeler |
+| Bluetooth | Gsm |
+
+## Computer zonder Pi
+
+`radio.html` openen kan nog. Dan speelt deze computer zelf, en moet je die wél met Bluetooth of AUX aan de Acton hangen. Voor platenspeler + gsm tegelijk heb je de Pi-over-wifi-weg nodig.

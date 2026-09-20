@@ -221,9 +221,9 @@
       <button class="power" id="power" type="button" aria-label="Aan of uit"></button>
     </header>
     <section class="now">
-      <small id="mode">Speaker klaar · geen gsm</small>
+      <small id="mode">Wifi-radio · AUX en Bluetooth vrij</small>
       <h2 id="title">Stil</h2>
-      <p id="sub">Tik een knop 1–7. Bron van de Acton op AUX of Bluetooth.</p>
+      <p id="sub">Tik een knop 1–7. Bron van de Acton op wifi. AUX voor platen, Bluetooth voor de gsm.</p>
     </section>
     <div class="presets" id="presets"></div>
     <div class="labels" id="labels"></div>
@@ -234,16 +234,16 @@
     </div>
     <div class="more" id="more"></div>
     <p class="err" id="err"></p>
-    <p class="hint" id="hint">Geluid gaat naar de standaardluidspreker van dit toestel — koppel die met de Acton.</p>
+    <p class="hint" id="hint">Op een Pi gaat dit over wifi naar de Acton. Platenspeler in AUX, gsm op Bluetooth.</p>
     <details>
       <summary>Eerste keer opzetten</summary>
       <ol>
-        <li>Acton aan. Bronknop op <strong>Bluetooth</strong>, 3 seconden indrukken tot het lampje knippert.</li>
-        <li>Op deze computer: koppel met <strong>Acton Multi-room</strong>.</li>
-        <li>Of: 3,5 mm-kabel in AUX, bronknop op <strong>AUX</strong>.</li>
-        <li>Tik hier een zender. Daarna: speaker aan, deze pagina open, klaar.</li>
+        <li>Acton één keer op het huis-wifi zetten (Google Home, daarna vergeten).</li>
+        <li>Pi op hetzelfde netwerk: <code>sudo raspi-config</code> → draadloos LAN, of een netwerkkabel.</li>
+        <li><code>sudo ./install.sh</code> in deze map. Bronknop Acton op <strong>wifi</strong>.</li>
+        <li>AUX blijft voor de platenspeler. Bluetooth blijft voor de gsm.</li>
       </ol>
-      <p>Raspberry Pi: <code>sudo ./install.sh</code> in deze map. Dan start Radio 2 vanzelf bij het opzetten.</p>
+      <p>Speakers zoeken: <code>python3 radio.py --discover</code></p>
     </details>
   </main>
   <audio id="player" preload="none"></audio>
@@ -294,11 +294,13 @@
       if (station && on) {
         titleEl.textContent = station.name;
         subEl.textContent = station.sub;
-        modeEl.textContent = backend === "mpv" ? "Pi speelt · Acton aan" : "Speelt naar de Acton";
+        modeEl.textContent = backend === "chromecast"
+          ? "Pi over wifi · AUX en Bluetooth vrij"
+          : backend === "mpv" ? "Pi speelt · Acton aan" : "Speelt naar de Acton";
       } else {
         titleEl.textContent = "Stil";
-        subEl.textContent = "Tik een knop 1–7. Bron van de Acton op AUX of Bluetooth.";
-        modeEl.textContent = "Speaker klaar · geen gsm";
+        subEl.textContent = "Tik een knop 1–7. Bron van de Acton op wifi. AUX voor platen, Bluetooth voor de gsm.";
+        modeEl.textContent = "Wifi-radio · AUX en Bluetooth vrij";
       }
     }
 
@@ -309,8 +311,9 @@
         body: body ? JSON.stringify(body) : undefined,
         cache: "no-store"
       });
-      if (!res.ok) throw new Error("api");
-      return res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "api");
+      return data;
     }
 
     async function play(id) {
@@ -320,8 +323,11 @@
       current = id;
       localStorage.setItem("semi-slim-station", id);
       try {
-        if (backend === "mpv") {
-          await api("/api/play", { id });
+        if (backend === "mpv" || backend === "chromecast") {
+          const status = await api("/api/play", { id });
+          if (status && status.error && !status.playing) {
+            throw new Error(status.error);
+          }
           setPlaying(true, station);
           return;
         }
@@ -331,13 +337,15 @@
         setPlaying(true, station);
       } catch (err) {
         setPlaying(false, station);
-        errEl.textContent = "Zender start niet. Check wifi, of kies een andere knop.";
+        errEl.textContent = (err && err.message && err.message !== "api")
+          ? err.message
+          : "Zender start niet. Acton aan, bronknop op wifi, zelfde netwerk als de Pi.";
       }
     }
 
     async function stop() {
       errEl.textContent = "";
-      if (backend === "mpv") {
+      if (backend === "mpv" || backend === "chromecast") {
         try { await api("/api/stop"); } catch (e) {}
       } else {
         audio.pause();
@@ -352,7 +360,7 @@
       localStorage.setItem("semi-slim-volume", String(volume));
       volVal.textContent = String(volume);
       audio.volume = volume / 100;
-      if (backend === "mpv" && playing) {
+      if ((backend === "mpv" || backend === "chromecast") && playing) {
         try { await api("/api/volume", { volume }); } catch (e) {}
       }
     }
@@ -412,13 +420,18 @@
       try {
         const status = await api("/api/status");
         if (status && status.backend) {
-          backend = status.hasMpv ? "mpv" : "browser";
+          backend = status.hasRemote ? status.backend : (status.hasMpv ? "mpv" : "browser");
           volume = Number(status.volume || volume);
           volEl.value = String(volume);
           volVal.textContent = String(volume);
-          if (status.hasMpv) {
+          if (status.backend === "chromecast") {
+            hintEl.textContent = status.deviceName
+              ? "Over wifi naar " + status.deviceName + ". AUX voor platen, Bluetooth voor de gsm."
+              : "Pi zoekt de Acton op wifi. AUX voor platen, Bluetooth voor de gsm.";
+          } else if (status.hasMpv) {
             hintEl.textContent = "De Pi speelt zelf. AUX-kabel of Bluetooth naar de Acton is genoeg.";
           }
+          if (status.error) errEl.textContent = status.error;
           if (status.playing && status.stationId) {
             current = status.stationId;
             setPlaying(true, stationById(status.stationId));
