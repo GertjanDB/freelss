@@ -1,0 +1,6 @@
+{
+  "default": "radio2",
+  "volume": 70,
+  "autostart": true,
+  "port": 8088
+}

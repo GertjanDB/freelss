@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14110e">
+  <title>Semi-slim radio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%2314110e' stroke='%23c4a574' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='8' fill='%23c0392b'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --ink: #f3ead8;
+      --muted: #b8a88a;
+      --brass: #c4a574;
+      --brass-deep: #8a6a3e;
+      --black: #14110e;
+      --panel: #1c1814;
+      --led: #c0392b;
+      --led-off: #3a2420;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: Outfit, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 50% -10%, #2a2218 0%, transparent 55%),
+        linear-gradient(180deg, #1a1612, #0c0a08);
+      display: grid;
+      place-items: center;
+      padding: 24px 16px 40px;
+    }
+    .deck {
+      width: min(560px, 100%);
+      background:
+        linear-gradient(180deg, #2a241c 0%, var(--panel) 18%, #151210 100%);
+      border: 1px solid #3a3126;
+      border-radius: 28px;
+      padding: 28px 24px 22px;
+      box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(196, 165, 116, 0.25);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .brand {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 34px;
+      line-height: 0.95;
+      margin: 0;
+      letter-spacing: 0.01em;
+    }
+    .brand span {
+      display: block;
+      font-family: Outfit, sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--brass);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .power {
+      border: 0;
+      background: #0e0c0a;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 2px #3d3428, 0 6px 16px rgba(0,0,0,.4);
+      position: relative;
+    }
+    .power::after {
+      content: "";
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--led-off);
+      display: block;
+      margin: 0 auto;
+      box-shadow: none;
+    }
+    .power.on::after {
+      background: var(--led);
+      box-shadow: 0 0 14px #e74c3c;
+    }
+    .now {
+      margin: 22px 0 8px;
+      min-height: 64px;
+    }
+    .now small {
+      color: var(--brass);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .now h2 {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 30px;
+      margin: 2px 0 0;
+      font-weight: 700;
+    }
+    .now p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .presets {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      margin: 18px 0 8px;
+    }
+    .preset {
+      appearance: none;
+      border: 0;
+      background: radial-gradient(circle at 30% 25%, #e2c899, #9a7544 55%, #5c4324);
+      color: #1a140c;
+      border-radius: 50%;
+      aspect-ratio: 1;
+      font-weight: 800;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 6px 0 #3d2b16, 0 10px 18px rgba(0,0,0,.35);
+    }
+    .preset:active { transform: translateY(3px); box-shadow: 0 3px 0 #3d2b16; }
+    .preset.active {
+      outline: 2px solid #f3ead8;
+      outline-offset: 3px;
+    }
+    .labels {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .labels span {
+      text-align: center;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.2;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: #0e0c0a;
+      border-radius: 999px;
+      padding: 10px 16px;
+    }
+    .controls label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--brass);
+      font-weight: 700;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--brass);
+    }
+    .vol {
+      width: 36px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+    .more {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .chip {
+      border: 1px solid #3a3126;
+      background: transparent;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+    }
+    .chip.active { border-color: var(--brass); color: var(--brass); }
+    details {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    details summary {
+      cursor: pointer;
+      color: var(--brass);
+      font-weight: 600;
+    }
+    details ol { padding-left: 18px; }
+    .hint {
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .err { color: #e7a598; font-size: 13px; margin-top: 8px; min-height: 18px; }
+    @media (max-width: 520px) {
+      .brand { font-size: 28px; }
+      .now h2 { font-size: 24px; }
+      .preset { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <header>
+      <h1 class="brand"><span>Semi-slim</span>Gewoon aanzetten</h1>
+      <button class="power" id="power" type="button" aria-label="Aan of uit"></button>
+    </header>
+    <section class="now">
+      <small id="mode">Speaker klaar · geen gsm</small>
+      <h2 id="title">Stil</h2>
+      <p id="sub">Tik een knop 1–7. Bron van de Acton op AUX of Bluetooth.</p>
+    </section>
+    <div class="presets" id="presets"></div>
+    <div class="labels" id="labels"></div>
+    <div class="controls">
+      <label for="volume">Volume</label>
+      <input id="volume" type="range" min="0" max="100" value="70">
+      <span class="vol" id="volVal">70</span>
+    </div>
+    <div class="more" id="more"></div>
+    <p class="err" id="err"></p>
+    <p class="hint" id="hint">Geluid gaat naar de standaardluidspreker van dit toestel — koppel die met de Acton.</p>
+    <details>
+      <summary>Eerste keer opzetten</summary>
+      <ol>
+        <li>Acton aan. Bronknop op <strong>Bluetooth</strong>, 3 seconden indrukken tot het lampje knippert.</li>
+        <li>Op deze computer: koppel met <strong>Acton Multi-room</strong>.</li>
+        <li>Of: 3,5 mm-kabel in AUX, bronknop op <strong>AUX</strong>.</li>
+        <li>Tik hier een zender. Daarna: speaker aan, deze pagina open, klaar.</li>
+      </ol>
+      <p>Raspberry Pi: <code>sudo ./install.sh</code> in deze map. Dan start Radio 2 vanzelf bij het opzetten.</p>
+    </details>
+  </main>
+  <audio id="player" preload="none"></audio>
+  <script>
+    const STATIONS = [
+      { id: "radio2", preset: 1, name: "Radio 2", sub: "Vlaams-Brabant", url: "https://icecast.vrtcdn.be/ra2vlb-high.mp3" },
+      { id: "radio1", preset: 2, name: "Radio 1", sub: "Nieuws & dualoog", url: "https://icecast.vrtcdn.be/radio1-high.mp3" },
+      { id: "stubru", preset: 3, name: "Studio Brussel", sub: "StuBru", url: "https://icecast.vrtcdn.be/stubru-high.mp3" },
+      { id: "mnm", preset: 4, name: "MNM", sub: "Hits", url: "https://icecast.vrtcdn.be/mnm-high.mp3" },
+      { id: "qmusic", preset: 5, name: "Qmusic", sub: "Q", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/QMUSIC.mp3" },
+      { id: "joe", preset: 6, name: "Joe", sub: "Greatest hits", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/JOE.mp3" },
+      { id: "nostalgie", preset: 7, name: "Nostalgie", sub: "Vlaanderen", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/NOSTALGIE_BE.mp3" },
+      { id: "klara", preset: 0, name: "Klara", sub: "Klassiek", url: "https://icecast.vrtcdn.be/klara-high.mp3" },
+      { id: "tijdloze", preset: 0, name: "De Tijdloze", sub: "StuBru", url: "https://icecast.vrtcdn.be/stubru_tijdloze-high.mp3" },
+      { id: "relax", preset: 0, name: "Radio 2 Relax", sub: "Unwind", url: "https://icecast.vrtcdn.be/radio2_relax-high.mp3" },
+      { id: "topradio", preset: 0, name: "TOPradio", sub: "Dance", url: "https://str.topradio.be/topradio.mp3" }
+    ];
+
+    const audio = document.getElementById("player");
+    const powerBtn = document.getElementById("power");
+    const titleEl = document.getElementById("title");
+    const subEl = document.getElementById("sub");
+    const modeEl = document.getElementById("mode");
+    const errEl = document.getElementById("err");
+    const hintEl = document.getElementById("hint");
+    const volEl = document.getElementById("volume");
+    const volVal = document.getElementById("volVal");
+
+    let backend = "browser";
+    let current = localStorage.getItem("semi-slim-station") || "radio2";
+    let volume = Number(localStorage.getItem("semi-slim-volume") || 70);
+    let playing = false;
+
+    volEl.value = String(volume);
+    volVal.textContent = String(volume);
+    audio.volume = volume / 100;
+
+    function stationById(id) {
+      return STATIONS.find((s) => s.id === id);
+    }
+
+    function setPlaying(on, station) {
+      playing = on;
+      powerBtn.classList.toggle("on", on);
+      document.querySelectorAll(".preset, .chip").forEach((el) => {
+        el.classList.toggle("active", on && el.dataset.id === (station && station.id));
+      });
+      if (station && on) {
+        titleEl.textContent = station.name;
+        subEl.textContent = station.sub;
+        modeEl.textContent = backend === "mpv" ? "Pi speelt · Acton aan" : "Speelt naar de Acton";
+      } else {
+        titleEl.textContent = "Stil";
+        subEl.textContent = "Tik een knop 1–7. Bron van de Acton op AUX of Bluetooth.";
+        modeEl.textContent = "Speaker klaar · geen gsm";
+      }
+    }
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+        cache: "no-store"
+      });
+      if (!res.ok) throw new Error("api");
+      return res.json();
+    }
+
+    async function play(id) {
+      const station = stationById(id);
+      if (!station) return;
+      errEl.textContent = "";
+      current = id;
+      localStorage.setItem("semi-slim-station", id);
+      try {
+        if (backend === "mpv") {
+          await api("/api/play", { id });
+          setPlaying(true, station);
+          return;
+        }
+        audio.src = station.url;
+        audio.volume = volume / 100;
+        await audio.play();
+        setPlaying(true, station);
+      } catch (err) {
+        setPlaying(false, station);
+        errEl.textContent = "Zender start niet. Check wifi, of kies een andere knop.";
+      }
+    }
+
+    async function stop() {
+      errEl.textContent = "";
+      if (backend === "mpv") {
+        try { await api("/api/stop"); } catch (e) {}
+      } else {
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      }
+      setPlaying(false);
+    }
+
+    async function setVolume(value) {
+      volume = Number(value);
+      localStorage.setItem("semi-slim-volume", String(volume));
+      volVal.textContent = String(volume);
+      audio.volume = volume / 100;
+      if (backend === "mpv" && playing) {
+        try { await api("/api/volume", { volume }); } catch (e) {}
+      }
+    }
+
+    function render() {
+      const presets = document.getElementById("presets");
+      const labels = document.getElementById("labels");
+      const more = document.getElementById("more");
+      presets.innerHTML = "";
+      labels.innerHTML = "";
+      more.innerHTML = "";
+      STATIONS.filter((s) => s.preset).sort((a, b) => a.preset - b.preset).forEach((s) => {
+        const b = document.createElement("button");
+        b.className = "preset";
+        b.textContent = s.preset;
+        b.dataset.id = s.id;
+        b.title = s.name;
+        b.addEventListener("click", () => play(s.id));
+        presets.appendChild(b);
+        const l = document.createElement("span");
+        l.textContent = s.name.replace("Studio Brussel", "StuBru").replace("Radio ", "R");
+        labels.appendChild(l);
+      });
+      STATIONS.filter((s) => !s.preset).forEach((s) => {
+        const b = document.createElement("button");
+        b.className = "chip";
+        b.dataset.id = s.id;
+        b.textContent = s.name;
+        b.addEventListener("click", () => play(s.id));
+        more.appendChild(b);
+      });
+    }
+
+    audio.addEventListener("error", () => {
+      if (playing && backend === "browser") {
+        errEl.textContent = "Stream hapert. Andere zender proberen mag.";
+      }
+    });
+
+    powerBtn.addEventListener("click", () => playing ? stop() : play(current));
+    volEl.addEventListener("input", (e) => setVolume(e.target.value));
+    document.addEventListener("keydown", (e) => {
+      if (e.key >= "1" && e.key <= "7") {
+        const s = STATIONS.find((x) => String(x.preset) === e.key);
+        if (s) play(s.id);
+      }
+      if (e.key === " ") {
+        e.preventDefault();
+        playing ? stop() : play(current);
+      }
+    });
+
+    render();
+
+    (async () => {
+      if (location.protocol === "file:") return;
+      try {
+        const status = await api("/api/status");
+        if (status && status.backend) {
+          backend = status.hasMpv ? "mpv" : "browser";
+          volume = Number(status.volume || volume);
+          volEl.value = String(volume);
+          volVal.textContent = String(volume);
+          if (status.hasMpv) {
+            hintEl.textContent = "De Pi speelt zelf. AUX-kabel of Bluetooth naar de Acton is genoeg.";
+          }
+          if (status.playing && status.stationId) {
+            current = status.stationId;
+            setPlaying(true, stationById(status.stationId));
+          }
+        }
+      } catch (e) {
+        backend = "browser";
+      }
+    })();
+  </script>
+</body>
+</html>
