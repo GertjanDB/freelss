@@ -20,11 +20,28 @@ var HEADERS = [
   'Opmerkingen'
 ];
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && String(e.parameter.lijst || '') === '1') {
+    var callback = String(e.parameter.callback || 'felixLijst').replace(/[^\w$]/g, '');
+    return ContentService
+      .createTextOutput(callback + '(' + JSON.stringify(listEntries()) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('Felix · voeding')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
+
+function doPost(e) {
+  var data = {};
+  try {
+    data = JSON.parse(e.postData.contents);
+  } catch (err) {
+    data = {};
+  }
+  var result = saveEntry(data);
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 
 function saveEntry(entry) {

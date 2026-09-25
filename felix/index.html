@@ -142,7 +142,17 @@
       font-size: 14px;
       margin-bottom: 12px;
     }
-    .banner a { color: var(--start-deep); }
+    .banner p { margin: 0 0 8px; }
+    .banner input { margin-bottom: 8px; }
+    .banner button {
+      border: 0;
+      background: var(--ink);
+      color: white;
+      border-radius: 12px;
+      min-height: 44px;
+      padding: 0 14px;
+      font-weight: 650;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { color: var(--muted); font-weight: 600; font-size: 12px; }
@@ -158,9 +168,9 @@
     </header>
 
     <div id="banner" class="banner" hidden>
-      Deze preview bewaart op dit toestel. Zet <code>Code.gs</code> en deze pagina in het spreadsheet als webapp om naar
-      <a href="https://docs.google.com/spreadsheets/d/1XQ4ZDI2sBRvFvwkXls_rV9kkRtaIq2LiiprU3FG7ouw/edit" target="_blank" rel="noopener">blad 1</a>
-      te schrijven. Blad 2 vult de grafieken.
+      <p>Plak de webapp-link uit Apps Script. Die eindigt op <strong>/exec</strong>. Daarna schrijft deze pagina, ook via Vercel, naar het spreadsheet.</p>
+      <input id="script-url" type="url" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+      <button id="save-url" type="button">Koppelen</button>
     </div>
 
     <form id="form">
@@ -239,8 +249,10 @@
     </section>
   </main>
 
+  <script src="koppeling.js"></script>
   <script>
     var STORAGE = 'felix-log-v1';
+    var URL_KEY = 'felix-script-url';
     var started = false;
     var stopped = false;
     var sheetMode = !!(window.google && google.script && google.script.run);
@@ -253,7 +265,32 @@
     var mlInput = document.getElementById('ml');
     var toast = document.getElementById('toast');
 
-    if (!sheetMode) document.getElementById('banner').hidden = false;
+    function scriptUrl() {
+      var fromFile = (typeof FELIX_SCRIPT_URL === 'string') ? FELIX_SCRIPT_URL.trim() : '';
+      var saved = '';
+      try { saved = (localStorage.getItem(URL_KEY) || '').trim(); } catch (e) { saved = ''; }
+      return fromFile || saved;
+    }
+
+    function remoteMode() {
+      return !sheetMode && scriptUrl().indexOf('https://script.google.com/') === 0;
+    }
+
+    var banner = document.getElementById('banner');
+    if (!sheetMode && !remoteMode()) banner.hidden = false;
+    document.getElementById('save-url').addEventListener('click', function () {
+      var url = document.getElementById('script-url').value.trim();
+      if (url.indexOf('https://script.google.com/') !== 0 || url.indexOf('/exec') === -1) {
+        toast.className = 'toast err';
+        toast.textContent = 'Gebruik de Apps Script-link die eindigt op /exec.';
+        return;
+      }
+      localStorage.setItem(URL_KEY, url);
+      banner.hidden = true;
+      toast.className = 'toast';
+      toast.textContent = 'Gekoppeld. Versturen schrijft nu naar het spreadsheet.';
+      loadList();
+    });
 
     function nowHHMM() {
       var d = new Date();
@@ -392,13 +429,36 @@
     }
 
     function loadList() {
-      if (!sheetMode) {
+      if (sheetMode) {
+        google.script.run.withSuccessHandler(render).withFailureHandler(function () {
+          render(readLocal());
+        }).listEntries();
+        return;
+      }
+      if (!remoteMode()) {
         render(readLocal());
         return;
       }
-      google.script.run.withSuccessHandler(render).withFailureHandler(function () {
+      var cb = 'felixLijst_' + Date.now();
+      var tag = document.createElement('script');
+      var timer = setTimeout(fail, 8000);
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+        if (tag.parentNode) tag.parentNode.removeChild(tag);
+      }
+      function fail() {
+        cleanup();
         render(readLocal());
-      }).listEntries();
+      }
+      window[cb] = function (rows) {
+        cleanup();
+        render(Array.isArray(rows) ? rows : readLocal());
+      };
+      tag.onerror = fail;
+      var url = scriptUrl();
+      tag.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'lijst=1&callback=' + cb;
+      document.head.appendChild(tag);
     }
 
     document.getElementById('form').addEventListener('submit', function (event) {
@@ -439,20 +499,33 @@
         localStorage.setItem(STORAGE, JSON.stringify(local.slice(0, 40)));
         resetForm();
         toast.className = 'toast';
-        toast.textContent = (sheetMode ? 'In het spreadsheet gezet om ' : 'Bewaard op dit toestel om ') + entry.tijdstip + '.';
+        toast.textContent = ((sheetMode || remoteMode()) ? 'In het spreadsheet gezet om ' : 'Bewaard op dit toestel om ') + entry.tijdstip + '.';
         document.getElementById('send').disabled = false;
         loadList();
       }
 
-      if (!sheetMode) {
+      if (sheetMode) {
+        google.script.run.withSuccessHandler(done).withFailureHandler(function (err) {
+          document.getElementById('send').disabled = false;
+          toast.className = 'toast err';
+          toast.textContent = 'Niet opgeslagen in het spreadsheet. ' + (err && err.message ? err.message : '');
+        }).saveEntry(entry);
+        return;
+      }
+      if (!remoteMode()) {
         done();
         return;
       }
-      google.script.run.withSuccessHandler(done).withFailureHandler(function (err) {
+      fetch(scriptUrl(), {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(entry)
+      }).then(done).catch(function () {
         document.getElementById('send').disabled = false;
         toast.className = 'toast err';
-        toast.textContent = 'Niet opgeslagen in het spreadsheet. ' + (err && err.message ? err.message : '');
-      }).saveEntry(entry);
+        toast.textContent = 'Niet verzonden. Controleer de Apps Script-link.';
+      });
     });
 
     function resetForm() {
