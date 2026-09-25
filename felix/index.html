@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4efe8">
+  <title>Felix · voeding</title>
+  <style>
+    :root {
+      --ink: #2c2824;
+      --muted: #6f675f;
+      --line: #e4dcd2;
+      --bg: #f4efe8;
+      --card: #fffdfb;
+      --start: #c46b5a;
+      --start-deep: #a35344;
+      --stop: #3d6b58;
+      --stop-deep: #2d5243;
+      --soft: #f7f1ea;
+      --focus: #c46b5a;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      min-height: 100dvh;
+    }
+    main {
+      width: min(520px, 100%);
+      margin: 0 auto;
+      padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+    }
+    header { margin-bottom: 16px; }
+    h1 { font-size: 28px; line-height: 1.1; margin: 0 0 4px; font-weight: 650; }
+    .sub { color: var(--muted); margin: 0; font-size: 14px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button, input, textarea { font: inherit; color: inherit; }
+    .go {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      min-height: 64px;
+      font-size: 20px;
+      font-weight: 700;
+      color: white;
+      cursor: pointer;
+    }
+    .go:disabled { opacity: 0.38; cursor: not-allowed; }
+    .go.start { background: var(--start); }
+    .go.start:not(:disabled):active { background: var(--start-deep); }
+    .go.stop { background: var(--stop); }
+    .go.stop:not(:disabled):active { background: var(--stop-deep); }
+    label.field { display: block; margin-top: 8px; }
+    .lbl {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    input[type="number"], input[type="text"], textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 18px;
+      outline: none;
+    }
+    .clock {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.06em;
+    }
+    input:focus, textarea:focus { border-color: var(--focus); background: white; }
+    textarea { min-height: 88px; resize: vertical; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    .choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .choice, .add, .send, .check {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 12px;
+      min-height: 52px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .choice[aria-pressed="true"] {
+      background: var(--ink);
+      color: white;
+      border-color: var(--ink);
+    }
+    .ml-row { display: flex; gap: 8px; align-items: center; }
+    .ml-row input { flex: 1; }
+    .adds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
+    .checks { display: grid; gap: 8px; }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      text-align: left;
+      font-size: 18px;
+    }
+    .check input { width: 22px; height: 22px; accent-color: var(--stop); }
+    .status {
+      min-height: 22px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .send {
+      width: 100%;
+      background: var(--ink);
+      color: white;
+      border: 0;
+      min-height: 56px;
+      font-size: 18px;
+      margin-top: 4px;
+    }
+    .send:disabled { opacity: 0.5; }
+    .toast {
+      margin-top: 10px;
+      font-size: 14px;
+      color: var(--stop-deep);
+      min-height: 20px;
+    }
+    .toast.err { color: var(--start-deep); }
+    .banner {
+      background: #fff6e8;
+      border: 1px solid #ead7b8;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .banner p { margin: 0 0 8px; }
+    .banner input { margin-bottom: 8px; }
+    .banner button {
+      border: 0;
+      background: var(--ink);
+      color: white;
+      border-radius: 12px;
+      min-height: 44px;
+      padding: 0 14px;
+      font-weight: 650;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .empty { color: var(--muted); margin: 0; }
+    .sheet-link { display: inline-block; margin-top: 8px; color: var(--start-deep); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Felix</h1>
+      <p class="sub">Tijdstip, voeding en stoelgang</p>
+    </header>
+
+    <div id="banner" class="banner" hidden>
+      <p>Plak de webapp-link uit Apps Script. Die eindigt op <strong>/exec</strong>. Daarna schrijft deze pagina, ook via Vercel, naar het spreadsheet.</p>
+      <input id="script-url" type="url" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+      <button id="save-url" type="button">Koppelen</button>
+    </div>
+
+    <form id="form">
+      <section class="card">
+        <div class="pair">
+          <div>
+            <button class="go start" id="start" type="button">Start</button>
+            <label class="field">
+              <span class="lbl">Aangepast uur</span>
+              <input id="start-time" class="clock" type="text" inputmode="numeric" maxlength="5" placeholder="00:00" spellcheck="false" autocomplete="off">
+            </label>
+          </div>
+          <div>
+            <button class="go stop" id="stop" type="button" disabled>Stop</button>
+            <label class="field">
+              <span class="lbl">Aangepast uur</span>
+              <input id="stop-time" class="clock" type="text" inputmode="numeric" maxlength="5" placeholder="00:00" spellcheck="false" autocomplete="off" disabled>
+            </label>
+          </div>
+        </div>
+        <p class="status" id="status">Stop kan pas na start.</p>
+      </section>
+
+      <section class="card">
+        <h2>Borsten</h2>
+        <div class="choices" id="breasts">
+          <button class="choice" type="button" data-borst="1" aria-pressed="false">1</button>
+          <button class="choice" type="button" data-borst="2" aria-pressed="false">2</button>
+          <button class="choice" type="button" data-borst="3" aria-pressed="false">3</button>
+          <button class="choice" type="button" data-borst="4" aria-pressed="false">4</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Aantal ml/cc bijgegeven</h2>
+        <div class="ml-row">
+          <input id="ml" inputmode="numeric" type="text" spellcheck="false" autocomplete="off" placeholder="ml">
+        </div>
+        <div class="adds">
+          <button class="add" type="button" data-add="1">+1 ml</button>
+          <button class="add" type="button" data-add="5">+5 ml</button>
+          <button class="add" type="button" data-add="10">+10 ml</button>
+          <button class="add" type="button" data-add="20">+20 ml</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="checks">
+          <label class="check"><input id="pipi" type="checkbox"> Pipi</label>
+          <label class="check"><input id="kaka" type="checkbox"> Kaka</label>
+        </div>
+      </section>
+
+      <section class="card">
+        <label class="field" style="margin-top:0">
+          <span class="lbl">Gewicht in g</span>
+          <input id="gewicht" inputmode="numeric" type="text" spellcheck="false" autocomplete="off" placeholder="gram">
+        </label>
+      </section>
+
+      <section class="card">
+        <label class="field" style="margin-top:0">
+          <span class="lbl">Opmerkingen</span>
+          <textarea id="opmerking" spellcheck="false" autocomplete="off"></textarea>
+        </label>
+      </section>
+
+      <button class="send" id="send" type="submit">Verstuur</button>
+      <p class="toast" id="toast" role="status"></p>
+    </form>
+
+    <section class="card">
+      <h2>Lijst</h2>
+      <div id="list"></div>
+      <a class="sheet-link" href="https://docs.google.com/spreadsheets/d/1XQ4ZDI2sBRvFvwkXls_rV9kkRtaIq2LiiprU3FG7ouw/edit" target="_blank" rel="noopener">Open het spreadsheet</a>
+    </section>
+  </main>
+
+  <script src="koppeling.js"></script>
+  <script>
+    var STORAGE = 'felix-log-v1';
+    var URL_KEY = 'felix-script-url';
+    var started = false;
+    var stopped = false;
+    var sheetMode = !!(window.google && google.script && google.script.run);
+
+    var startBtn = document.getElementById('start');
+    var stopBtn = document.getElementById('stop');
+    var startTime = document.getElementById('start-time');
+    var stopTime = document.getElementById('stop-time');
+    var statusEl = document.getElementById('status');
+    var mlInput = document.getElementById('ml');
+    var toast = document.getElementById('toast');
+
+    function scriptUrl() {
+      var fromFile = (typeof FELIX_SCRIPT_URL === 'string') ? FELIX_SCRIPT_URL.trim() : '';
+      var saved = '';
+      try { saved = (localStorage.getItem(URL_KEY) || '').trim(); } catch (e) { saved = ''; }
+      return fromFile || saved;
+    }
+
+    function remoteMode() {
+      return !sheetMode && scriptUrl().indexOf('https://script.google.com/') === 0;
+    }
+
+    var banner = document.getElementById('banner');
+    if (!sheetMode && !remoteMode()) banner.hidden = false;
+    document.getElementById('save-url').addEventListener('click', function () {
+      var url = document.getElementById('script-url').value.trim();
+      if (url.indexOf('https://script.google.com/') !== 0 || url.indexOf('/exec') === -1) {
+        toast.className = 'toast err';
+        toast.textContent = 'Gebruik de Apps Script-link die eindigt op /exec.';
+        return;
+      }
+      localStorage.setItem(URL_KEY, url);
+      banner.hidden = true;
+      toast.className = 'toast';
+      toast.textContent = 'Gekoppeld. Versturen schrijft nu naar het spreadsheet.';
+      loadList();
+    });
+
+    function nowHHMM() {
+      var d = new Date();
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function paintClock(input) {
+      var digits = String(input.value).replace(/\D/g, '').slice(0, 4);
+      var next = digits.length <= 2 ? digits : digits.slice(0, 2) + ':' + digits.slice(2);
+      if (input.value !== next) input.value = next;
+    }
+
+    function as24h(value) {
+      var digits = String(value || '').replace(/\D/g, '').slice(0, 4);
+      if (digits.length === 0) return '';
+      if (digits.length <= 2) digits = digits.padStart(2, '0') + '00';
+      if (digits.length === 3) digits = '0' + digits;
+      var hour = Number(digits.slice(0, 2));
+      var minute = Number(digits.slice(2));
+      if (hour > 23 || minute > 59) return '';
+      return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+    }
+
+    function commitClock(input, fallbackNow) {
+      var typed = String(input.value).replace(/\D/g, '');
+      if (!typed && fallbackNow) {
+        input.value = nowHHMM();
+        return true;
+      }
+      var clock = as24h(input.value);
+      if (!clock) return false;
+      input.value = clock;
+      return true;
+    }
+
+    function padDate(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function syncButtons() {
+      startBtn.disabled = started && !stopped;
+      stopBtn.disabled = !started || stopped;
+      stopTime.disabled = !started;
+      if (!started) statusEl.textContent = 'Stop kan pas na start.';
+      else if (!stopped) statusEl.textContent = 'Bezig sinds ' + startTime.value + '. Start kan pas na stop.';
+      else statusEl.textContent = 'Genoteerd ' + startTime.value + ' – ' + stopTime.value + '.';
+    }
+
+    [startTime, stopTime].forEach(function (input) {
+      input.addEventListener('input', function () {
+        paintClock(input);
+        if (input === startTime && started && !stopped) {
+          statusEl.textContent = 'Bezig sinds ' + (startTime.value || '…') + '. Start kan pas na stop.';
+        }
+      });
+    });
+
+    startBtn.addEventListener('click', function () {
+      if (startBtn.disabled) return;
+      if (!commitClock(startTime, true)) {
+        statusEl.textContent = 'Uur in 24 uur, bijvoorbeeld 14:30.';
+        return;
+      }
+      started = true;
+      stopped = false;
+      stopTime.value = '';
+      syncButtons();
+    });
+
+    stopBtn.addEventListener('click', function () {
+      if (stopBtn.disabled) return;
+      if (!commitClock(stopTime, true)) {
+        statusEl.textContent = 'Uur in 24 uur, bijvoorbeeld 14:30.';
+        return;
+      }
+      stopped = true;
+      syncButtons();
+    });
+
+    document.getElementById('breasts').addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-borst]');
+      if (!btn) return;
+      var on = btn.getAttribute('aria-pressed') === 'true';
+      document.querySelectorAll('[data-borst]').forEach(function (el) {
+        el.setAttribute('aria-pressed', 'false');
+      });
+      if (!on) btn.setAttribute('aria-pressed', 'true');
+    });
+
+    document.querySelector('.adds').addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-add]');
+      if (!btn) return;
+      var current = parseInt(String(mlInput.value).replace(',', '.'), 10);
+      if (!isFinite(current)) current = 0;
+      mlInput.value = String(current + Number(btn.getAttribute('data-add')));
+    });
+
+    function selectedBreast() {
+      var on = document.querySelector('[data-borst][aria-pressed="true"]');
+      return on ? on.getAttribute('data-borst') : '';
+    }
+
+    function durationMinutes(start, stop) {
+      if (!start || !stop) return '';
+      var a = start.split(':');
+      var b = stop.split(':');
+      var mins = (Number(b[0]) * 60 + Number(b[1])) - (Number(a[0]) * 60 + Number(a[1]));
+      if (mins < 0) mins += 24 * 60;
+      return mins;
+    }
+
+    function readLocal() {
+      try { return JSON.parse(localStorage.getItem(STORAGE) || '[]'); }
+      catch (e) { return []; }
+    }
+
+    function render(rows) {
+      var host = document.getElementById('list');
+      if (!rows.length) {
+        host.innerHTML = '<p class="empty">Nog niets verstuurd.</p>';
+        return;
+      }
+      var html = '<table><thead><tr><th>Wanneer</th><th>Start</th><th>Stop</th><th>Borst</th><th>ml</th><th>Pipi</th><th>Kaka</th><th>g</th><th>Opmerking</th></tr></thead><tbody>';
+      rows.forEach(function (r) {
+        html += '<tr><td>' + esc(r.datum) + ' ' + esc(r.tijdstip) + '</td><td>' + esc(r.start) + '</td><td>' + esc(r.stop) +
+          '</td><td>' + esc(r.borst) + '</td><td>' + esc(r.ml) + '</td><td>' + (r.pipi ? 'Ja' : '') + '</td><td>' +
+          (r.kaka ? 'Ja' : '') + '</td><td>' + esc(r.gewicht) + '</td><td>' + esc(r.opmerking) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      host.innerHTML = html;
+    }
+
+    function esc(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function loadList() {
+      if (sheetMode) {
+        google.script.run.withSuccessHandler(render).withFailureHandler(function () {
+          render(readLocal());
+        }).listEntries();
+        return;
+      }
+      if (!remoteMode()) {
+        render(readLocal());
+        return;
+      }
+      var cb = 'felixLijst_' + Date.now();
+      var tag = document.createElement('script');
+      var timer = setTimeout(fail, 8000);
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+        if (tag.parentNode) tag.parentNode.removeChild(tag);
+      }
+      function fail() {
+        cleanup();
+        render(readLocal());
+      }
+      window[cb] = function (rows) {
+        cleanup();
+        render(Array.isArray(rows) ? rows : readLocal());
+      };
+      tag.onerror = fail;
+      var url = scriptUrl();
+      tag.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'lijst=1&callback=' + cb;
+      document.head.appendChild(tag);
+    }
+
+    document.getElementById('form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var ml = mlInput.value.trim();
+      var gewicht = document.getElementById('gewicht').value.trim();
+      var opmerking = document.getElementById('opmerking').value.trim();
+      var borst = selectedBreast();
+      var pipi = document.getElementById('pipi').checked;
+      var kaka = document.getElementById('kaka').checked;
+      var hasTiming = started;
+      if (!hasTiming && !borst && !ml && !pipi && !kaka && !gewicht && !opmerking) {
+        toast.className = 'toast err';
+        toast.textContent = 'Vul minstens één gegeven in.';
+        return;
+      }
+      var sent = new Date();
+      var entry = {
+        datum: padDate(sent),
+        tijdstip: nowHHMM(),
+        start: hasTiming ? startTime.value : '',
+        stop: hasTiming && stopped ? stopTime.value : '',
+        duur: hasTiming && stopped ? durationMinutes(startTime.value, stopTime.value) : '',
+        borst: borst,
+        ml: ml,
+        pipi: pipi,
+        kaka: kaka,
+        gewicht: gewicht,
+        opmerking: opmerking
+      };
+      document.getElementById('send').disabled = true;
+      toast.className = 'toast';
+      toast.textContent = 'Bezig met versturen…';
+
+      function done() {
+        var local = readLocal();
+        local.unshift(entry);
+        localStorage.setItem(STORAGE, JSON.stringify(local.slice(0, 40)));
+        resetForm();
+        toast.className = 'toast';
+        toast.textContent = ((sheetMode || remoteMode()) ? 'In het spreadsheet gezet om ' : 'Bewaard op dit toestel om ') + entry.tijdstip + '.';
+        document.getElementById('send').disabled = false;
+        loadList();
+      }
+
+      if (sheetMode) {
+        google.script.run.withSuccessHandler(done).withFailureHandler(function (err) {
+          document.getElementById('send').disabled = false;
+          toast.className = 'toast err';
+          toast.textContent = 'Niet opgeslagen in het spreadsheet. ' + (err && err.message ? err.message : '');
+        }).saveEntry(entry);
+        return;
+      }
+      if (!remoteMode()) {
+        done();
+        return;
+      }
+      fetch(scriptUrl(), {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(entry)
+      }).then(done).catch(function () {
+        document.getElementById('send').disabled = false;
+        toast.className = 'toast err';
+        toast.textContent = 'Niet verzonden. Controleer de Apps Script-link.';
+      });
+    });
+
+    function resetForm() {
+      started = false;
+      stopped = false;
+      startTime.value = '';
+      stopTime.value = '';
+      mlInput.value = '';
+      document.getElementById('gewicht').value = '';
+      document.getElementById('opmerking').value = '';
+      document.getElementById('pipi').checked = false;
+      document.getElementById('kaka').checked = false;
+      document.querySelectorAll('[data-borst]').forEach(function (el) {
+        el.setAttribute('aria-pressed', 'false');
+      });
+      syncButtons();
+    }
+
+    syncButtons();
+    loadList();
+  </script>
+</body>
+</html>
