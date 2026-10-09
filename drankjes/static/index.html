@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Drankjes die je lekker vindt</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <p class="eyebrow">Van licht naar zwaar</p>
+    <h1>Drankjes die je lekker vindt</h1>
+    <p class="lede">Zet erop wat je lust. De lichtste optie blijft bovenaan, gerekend op suiker per 100 ml. Dezelfde lijst staat in de spreadsheet <strong>drankjes.xlsx</strong>.</p>
+  </header>
+
+  <p id="summary" class="summary" aria-live="polite">Lijst laden…</p>
+
+  <div class="layout">
+    <section class="board" aria-labelledby="list-title">
+      <div class="board-head">
+        <h2 id="list-title">De lijst</h2>
+        <p class="board-note">Per 100 ml, zodat een blik en een fles eerlijk naast elkaar staan.</p>
+      </div>
+      <div id="warnings" class="warnings" hidden></div>
+      <ol id="list" class="drinks"></ol>
+    </section>
+
+    <aside class="composer">
+      <form id="form">
+        <h2 id="form-title">Drankje toevoegen</h2>
+        <p class="form-help">Suiker en calorieën staan per 100 ml op het etiket. Laat calorieën leeg voor 4 kcal per gram suiker.</p>
+        <label>
+          Naam
+          <input id="naam" name="naam" maxlength="80" required autocomplete="off" placeholder="Bijvoorbeeld spuitwater met munt">
+        </label>
+        <div class="split">
+          <label>
+            Suiker per 100 ml
+            <input id="suiker" name="suiker" inputmode="decimal" required autocomplete="off" placeholder="bijv. 2,5">
+          </label>
+          <label>
+            Calorieën per 100 ml
+            <input id="kcal" name="kcal" inputmode="decimal" autocomplete="off" placeholder="bijv. 10">
+          </label>
+        </div>
+        <label>
+          Notitie
+          <input id="notitie" name="notitie" maxlength="200" autocomplete="off" placeholder="Merk, smaak, blik of fles">
+        </label>
+        <p id="preview" class="preview" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="submit" id="submit">Op de lijst</button>
+          <button type="button" id="cancel" hidden>Annuleren</button>
+        </div>
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+      </form>
+
+      <div class="sheet">
+        <h2>Spreadsheet</h2>
+        <p>Bewerk <strong>drankjes.xlsx</strong> in Excel of LibreOffice, sla op, en ververs hier. Een download is een kopie en loopt niet vanzelf mee.</p>
+        <p id="sheet-path" class="path"></p>
+        <p id="sheet-time" class="updated"></p>
+        <div class="sheet-actions">
+          <a class="button" href="/api/spreadsheet">Download .xlsx</a>
+          <button type="button" id="refresh">Ververs</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <p>Sortering: minste suiker per 100 ml, daarna minste calorieën, daarna de naam. Tot 5 g per 100 ml heet hier lichter, tot 8 g gemiddeld, daarboven zwaar. Nul suiker komt bovenaan; zoetstoffen wegen niet mee. Dit vergelijkt dranken die je lekker vindt, het is geen voedingsadvies.</p>
+  </footer>
+  <script src="/app.js"></script>
+  <noscript>Zet JavaScript aan om de lijst te zien en drankjes toe te voegen.</noscript>
+</body>
+</html>
