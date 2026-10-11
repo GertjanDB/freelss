@@ -7,6 +7,7 @@ onderkant. Het STL-bestand is in millimeters, oorsprong in het midden,
 Z omhoog.
 
 Buitendiameter (toppen van de ribben): 200 mm.
+Wand: één lijntje, nozzle 0,4 mm, dus 0,4 mm dik.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ N_RIBBEN = 24             # ribben rondom
 HOEK_GRADEN = 33.0        # helling van een rib t.o.v. de horizontaal, op de evenaar
 GAT_BOVEN = 76.0          # diameter van de bovenopening
 GAT_ONDER = 70.0          # diameter van de onderopening
-WAND = 2.2                # wanddikte, loodrecht op het oppervlak
+WAND = 0.4                # één wandlijn bij een nozzle van 0,4 mm
 
 OUT_DIR = Path(__file__).resolve().parent
 STL_PATH = OUT_DIR / "spiraalbol-20cm.stl"
@@ -242,14 +243,15 @@ def controleer(verts, tris):
     buiten = verts[: len(verts) // 2]
     binnen = verts[len(verts) // 2 :]
     straal_buiten = np.linalg.norm(buiten, axis=1)
-    # binnenpunt moet dichter bij de oorsprong liggen dan het bijbehorende buitenpunt
-    dieper = np.linalg.norm(binnen, axis=1) < straal_buiten - 0.3
+    dikte = np.linalg.norm(buiten - binnen, axis=1)
     bb_min = verts.min(axis=0)
     bb_max = verts.max(axis=0)
     return {
         "driehoeken": int(len(tris)),
         "open_kanten": int(los),
-        "binnen_ok_fractie": float(dieper.mean()),
+        "wand_min": float(dikte.min()),
+        "wand_max": float(dikte.max()),
+        "wand_mediaan": float(np.median(dikte)),
         "bbox_min": bb_min,
         "bbox_max": bb_max,
         "diameter_xy": float(max(bb_max[0] - bb_min[0], bb_max[1] - bb_min[1])),
@@ -367,11 +369,11 @@ def render(breedte, hoogte, elev_deg, azim_deg, afstand, fov_deg, achtergrond, m
 
         if not met_binnen:
             continue
-        # kijk door het gat: de straal raakt de binnenwand aan de overkant
+        # kijk door het gat: de straal raakt de binnenwand aan de overkant.
+        # De wand is dunner dan de stap, dus de straal mag in één stap door de wand heen schieten.
         r_in = rs - WAND
-        # overgang van binnen de holte naar de wand, terwijl we nog binnen de buitenkant zitten
         binnen_holte = r < r_in
-        kruist = binnen_holte[:-1] & ~binnen_holte[1:] & band[1:] & ((r[1:] - rs[1:]) < 0)
+        kruist = binnen_holte[:-1] & ~binnen_holte[1:] & band[:-1] & band[1:]
         # alleen waar de buitenkant niet al geraakt is
         heeft_buiten_voor = np.cumsum(treffer, axis=0) > 0
         kruist = kruist & ~heeft_buiten_voor[:-1]
@@ -443,8 +445,8 @@ def maak(preview=True, mesh_theta=170, mesh_phi=420):
         print(f"  {k}: {v}")
     if rapport["open_kanten"] != 0:
         raise SystemExit("Mesh is niet gesloten")
-    if rapport["binnen_ok_fractie"] < 0.99:
-        raise SystemExit("Binnenwand snijdt de buitenkant")
+    if not (0.35 <= rapport["wand_min"] and rapport["wand_max"] <= 0.45):
+        raise SystemExit("Wanddikte wijkt af van 0,4 mm")
     n = schrijf_stl(STL_PATH, verts, tris)
     print(f"STL: {STL_PATH} ({n} driehoeken)")
     return rapport
