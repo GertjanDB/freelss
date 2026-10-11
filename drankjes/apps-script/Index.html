@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
+  <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>Drankjes die je lekker vindt</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Outfit:wght@400;500;600&display=swap">
+  <?!= include('Styles'); ?>
 </head>
 <body>
   <header class="top">
     <p class="eyebrow">Van licht naar zwaar</p>
     <h1>Drankjes die je lekker vindt</h1>
-    <p class="lede">Zet erop wat je lust. De lichtste optie blijft bovenaan, gerekend op suiker per 100 ml. Dezelfde lijst staat in de spreadsheet <strong>drankjes.xlsx</strong>.</p>
+    <p class="lede">Zet erop wat je lust. De lichtste optie blijft bovenaan, gerekend op suiker per 100 ml. Dezelfde lijst staat in je Google Spreadsheet, ook op je telefoon.</p>
   </header>
 
   <p id="summary" class="summary" aria-live="polite">Lijst laden…</p>
@@ -57,12 +57,12 @@
       </form>
 
       <div class="sheet">
-        <h2>Spreadsheet</h2>
-        <p>Bewerk <strong>drankjes.xlsx</strong> in Excel of LibreOffice, sla op, en ververs hier. Een download is een kopie en loopt niet vanzelf mee.</p>
-        <p id="sheet-path" class="path"></p>
+        <h2>Google Spreadsheet</h2>
+        <p>Het blad <strong>Ranglijst</strong> staat van licht naar zwaar. Dat open je in de Sheets-app. Een rij typ je op het blad <strong>Drankjes</strong>, of hier.</p>
+        <p id="sheet-name" class="path"></p>
         <p id="sheet-time" class="updated"></p>
         <div class="sheet-actions">
-          <a class="button" href="/api/spreadsheet">Download .xlsx</a>
+          <a class="button" id="sheet-link" href="#" target="_blank" rel="noopener">Open de spreadsheet</a>
           <button type="button" id="refresh">Ververs</button>
         </div>
       </div>
@@ -72,7 +72,6 @@
   <footer>
     <p>Sortering: minste suiker per 100 ml, daarna minste calorieën, daarna de naam. Tot 5 g per 100 ml heet hier lichter, tot 8 g gemiddeld, daarboven zwaar. Nul suiker komt bovenaan; zoetstoffen wegen niet mee. Dit vergelijkt dranken die je lekker vindt, het is geen voedingsadvies.</p>
   </footer>
-  <script src="/app.js"></script>
-  <noscript>Zet JavaScript aan om de lijst te zien en drankjes toe te voegen.</noscript>
+  <?!= include('Client'); ?>
 </body>
 </html>

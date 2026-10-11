@@ -1,51 +1,4 @@
-@font-face {
-  font-family: "Fraunces";
-  src: url("/fonts/fraunces-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Fraunces";
-  src: url("/fonts/fraunces-600.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Fraunces";
-  src: url("/fonts/fraunces-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Outfit";
-  src: url("/fonts/outfit-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Outfit";
-  src: url("/fonts/outfit-500.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Outfit";
-  src: url("/fonts/outfit-600.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
+<style>
 :root {
   --paper: #f3eee6;
   --card: #fbf8f2;
@@ -57,9 +10,8 @@
   --amber: #8a5a12;
   --amber-soft: #f8efd8;
   --red: #9d3a32;
-  --red-soft: #f8e8e6;
-  --serif: "Fraunces", "Liberation Serif", Georgia, serif;
-  --sans: "Outfit", "Inter", "Segoe UI", sans-serif;
+  --serif: "Fraunces", Georgia, serif;
+  --sans: "Outfit", "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -133,9 +85,7 @@ h1 {
   font-size: 28px;
 }
 
-.board-note, .form-help, .sheet p, footer p {
-  color: var(--muted);
-}
+.board-note, .form-help, .sheet p, footer p { color: var(--muted); }
 
 .board-note { margin: 4px 0 0; }
 
@@ -199,27 +149,13 @@ h1 {
   line-height: 1.2;
 }
 
-.sugar {
-  margin: 0;
-  text-align: right;
-  white-space: nowrap;
-}
+.sugar { margin: 0; text-align: right; white-space: nowrap; }
 
-.sugar strong {
-  display: block;
-  font-size: 32px;
-  line-height: 0.95;
-}
+.sugar strong { display: block; font-size: 32px; line-height: 0.95; }
 
-.sugar span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-}
+.sugar span { color: var(--muted); font-size: 12px; font-weight: 500; }
 
-.versus, .note, .meta {
-  margin: 8px 0 0;
-}
+.versus, .note, .meta { margin: 8px 0 0; }
 
 .versus { font-size: 14px; }
 
@@ -251,12 +187,7 @@ h1 {
   font-size: 14px;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
 button, .button {
   font: inherit;
@@ -286,7 +217,6 @@ button[type="submit"], .button {
 }
 
 button:hover, .button:hover { border-color: var(--ink); }
-
 button[type="submit"]:hover, .button:hover { background: var(--green); }
 
 button:focus-visible, .button:focus-visible, input:focus-visible {
@@ -296,10 +226,7 @@ button:focus-visible, .button:focus-visible, input:focus-visible {
 
 button:disabled { opacity: 0.55; cursor: wait; }
 
-.confirm {
-  margin: 12px 0 0;
-  font-size: 14px;
-}
+.confirm { margin: 12px 0 0; font-size: 14px; }
 
 .danger {
   background: var(--red) !important;
@@ -346,20 +273,13 @@ input {
 
 .form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.form-error {
-  margin: 12px 0 0;
-  color: var(--red);
-  font-size: 14px;
-}
+.form-error { margin: 12px 0 0; color: var(--red); font-size: 14px; }
 
 .sheet h2 { font-size: 22px; }
 
 .sheet p { margin: 8px 0 0; font-size: 14px; }
 
-.path, .updated {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
+.path, .updated { overflow-wrap: anywhere; font-size: 13px; }
 
 .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 
@@ -385,7 +305,6 @@ input {
 }
 
 footer { padding: 28px 0 48px; }
-
 footer p { margin: 0; font-size: 13px; }
 
 .is-fresh { animation: flash 1.6s ease; }
@@ -407,3 +326,4 @@ footer p { margin: 0; font-size: 13px; }
 @media (prefers-reduced-motion: reduce) {
   .is-fresh { animation: none; background: var(--green-soft); }
 }
+</style>

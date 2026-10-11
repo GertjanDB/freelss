@@ -1,3 +1,4 @@
+<script>
 const listEl = document.querySelector("#list");
 const summaryEl = document.querySelector("#summary");
 const warningsEl = document.querySelector("#warnings");
@@ -7,10 +8,10 @@ const submitButton = document.querySelector("#submit");
 const cancelButton = document.querySelector("#cancel");
 const previewEl = document.querySelector("#preview");
 const errorEl = document.querySelector("#form-error");
-const pathEl = document.querySelector("#sheet-path");
+const nameEl = document.querySelector("#sheet-name");
 const timeEl = document.querySelector("#sheet-time");
+const linkEl = document.querySelector("#sheet-link");
 const refreshButton = document.querySelector("#refresh");
-
 const naamInput = document.querySelector("#naam");
 const suikerInput = document.querySelector("#suiker");
 const kcalInput = document.querySelector("#kcal");
@@ -71,9 +72,24 @@ function compare(a, b) {
   return String(a.id).localeCompare(String(b.id));
 }
 
+function leesFout(error) {
+  const raw = error && error.message ? error.message : String(error || "Er ging iets mis.");
+  return raw.replace(/^Exception:\s*/, "");
+}
+
 function showError(message) {
   errorEl.hidden = !message;
   errorEl.textContent = message || "";
+}
+
+function run(name, arg) {
+  return new Promise((resolve, reject) => {
+    const call = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => reject(error));
+    if (arg === undefined) call[name]();
+    else call[name](arg);
+  });
 }
 
 function setEditing(drink) {
@@ -82,9 +98,8 @@ function setEditing(drink) {
   formTitle.textContent = drink ? "Drankje aanpassen" : "Drankje toevoegen";
   submitButton.textContent = drink ? "Opslaan" : "Op de lijst";
   cancelButton.hidden = !drink;
-  if (!drink) {
-    form.reset();
-  } else {
+  if (!drink) form.reset();
+  else {
     naamInput.value = drink.naam;
     suikerInput.value = formatAmount(drink.suiker);
     kcalInput.value = formatAmount(drink.kcal);
@@ -94,27 +109,7 @@ function setEditing(drink) {
   render();
 }
 
-async function api(method, url, body) {
-  const response = await fetch(url, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
-  let payload = {};
-  try {
-    payload = await response.json();
-  } catch (_error) {
-    payload = {};
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || "Er ging iets mis. Probeer het opnieuw.");
-  }
-  return payload;
-}
-
 function payloadFromForm() {
-  const suiker = parseNl(suikerInput.value);
   const kcalText = kcalInput.value.trim();
   const data = {
     naam: naamInput.value,
@@ -122,7 +117,8 @@ function payloadFromForm() {
     notitie: notitieInput.value,
   };
   if (kcalText) data.kcal = kcalText;
-  if (suiker === null && suikerInput.value.trim()) {
+  if (editingId) data.id = editingId;
+  if (suikerInput.value.trim() && parseNl(suikerInput.value) === null) {
     throw new Error("Suiker moet een getal zijn, bijvoorbeeld 3,8.");
   }
   if (kcalText && parseNl(kcalText) === null) {
@@ -186,7 +182,8 @@ function render() {
     main.append(title);
     main.append(el("p", { class: "versus" }, [versus(drink, lightest)]));
     if (drink.notitie) main.append(el("p", { class: "note" }, [drink.notitie]));
-    const meter = el("div", { class: "meter", "aria-hidden": "true" });
+    const meter = el("div", { class: "meter" });
+    meter.setAttribute("aria-hidden", "true");
     const bar = el("span");
     bar.style.width = `${width}%`;
     meter.append(bar);
@@ -198,9 +195,9 @@ function render() {
       ]),
     ]));
 
+    const actions = el("div", { class: "actions" });
     if (pendingDeleteId === drink.id) {
       main.append(el("p", { class: "confirm" }, ["Weghalen uit de lijst?"]));
-      const actions = el("div", { class: "actions" });
       const yes = el("button", { type: "button", class: "danger" }, ["Ja, weghalen"]);
       yes.addEventListener("click", () => removeDrink(drink.id));
       const no = el("button", { type: "button" }, ["Laten staan"]);
@@ -209,9 +206,7 @@ function render() {
         render();
       });
       actions.append(yes, no);
-      main.append(actions);
     } else {
-      const actions = el("div", { class: "actions" });
       const edit = el("button", { type: "button" }, ["Bewerken"]);
       edit.addEventListener("click", () => {
         setEditing(drink);
@@ -224,8 +219,8 @@ function render() {
         render();
       });
       actions.append(edit, remove);
-      main.append(actions);
     }
+    main.append(actions);
     card.append(main);
     const item = el("li", { "data-id": drink.id });
     item.append(card);
@@ -235,10 +230,10 @@ function render() {
 
 function applyPayload(payload) {
   drinks = payload.drinks || [];
-  pathEl.textContent = payload.spreadsheet || "";
+  nameEl.textContent = payload.spreadsheet || "";
+  if (payload.spreadsheetUrl) linkEl.href = payload.spreadsheetUrl;
   if (payload.gewijzigd) {
-    const when = new Date(payload.gewijzigd);
-    timeEl.textContent = `Bijgewerkt ${when.toLocaleString("nl-NL")}`;
+    timeEl.textContent = `Bijgewerkt ${new Date(payload.gewijzigd).toLocaleString("nl-NL")}`;
   } else {
     timeEl.textContent = "";
   }
@@ -252,10 +247,10 @@ function applyPayload(payload) {
 async function load() {
   savedId = null;
   try {
-    applyPayload(await api("GET", "/api/drinks"));
+    applyPayload(await run("lijstOphalen"));
     showError("");
   } catch (error) {
-    summaryEl.textContent = error.message;
+    summaryEl.textContent = leesFout(error);
   }
 }
 
@@ -263,10 +258,10 @@ async function removeDrink(id) {
   savedId = null;
   try {
     pendingDeleteId = null;
-    applyPayload(await api("DELETE", `/api/drinks/${encodeURIComponent(id)}`));
+    applyPayload(await run("drankjeWeghalen", id));
     if (editingId === id) setEditing(null);
   } catch (error) {
-    showError(error.message);
+    showError(leesFout(error));
     await load();
   }
 }
@@ -283,18 +278,16 @@ form.addEventListener("submit", async (event) => {
   }
   submitButton.disabled = true;
   try {
-    const url = editingId ? `/api/drinks/${encodeURIComponent(editingId)}` : "/api/drinks";
-    const method = editingId ? "PUT" : "POST";
-    const payload = await api(method, url, data);
+    const payload = await run("drankjeOpslaan", data);
     savedId = payload.savedId || null;
     setEditing(null);
     applyPayload(payload);
     if (savedId) {
       const node = listEl.querySelector(`[data-id="${CSS.escape(savedId)}"]`);
-      node?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (node) node.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   } catch (error) {
-    showError(error.message);
+    showError(leesFout(error));
   } finally {
     submitButton.disabled = false;
   }
@@ -311,3 +304,4 @@ cancelButton.addEventListener("click", () => {
 
 refreshButton.addEventListener("click", load);
 load();
+</script>
