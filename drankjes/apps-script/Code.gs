@@ -14,7 +14,9 @@ var KOLOMMEN = {
   naam: ['naam'],
   suiker: ['suiker (g/100 ml)', 'suiker', 'suiker per 100 ml'],
   kcal: ['calorieën (kcal/100 ml)', 'calorieen (kcal/100 ml)', 'calorieën', 'calorieen', 'kcal'],
-  notitie: ['notitie'],
+  ingredienten: ['ingrediënten', 'ingredienten'],
+  toelichting: ['toelichting', 'notitie'],
+  weging: ['weging'],
   toegevoegd: ['toegevoegd'],
   rang: ['rang'],
   id: ['id']
@@ -74,10 +76,9 @@ function installeer() {
       }
       schrijfKop_(sheet);
       schrijf_(sheet, voorbeeldDrankjes_());
-    } else if (gelezen.dirty || !zelfdeVolgorde_(gelezen.drinks, sorteer_(gelezen.drinks))) {
-      schrijf_(sheet, gelezen.drinks);
     } else {
-      stijlDataBlad_(sheet, gelezen.drinks.length);
+      if (!kopActueel_(sheet)) schrijfKop_(sheet);
+      schrijf_(sheet, gelezen.drinks);
     }
     bouwRanglijst_(ss);
     bouwUitleg_(ss);
@@ -86,7 +87,7 @@ function installeer() {
     lock.releaseLock();
   }
   melding_(
-    'Klaar. Op het blad Ranglijst staat de lijst van licht naar zwaar.\n\n' +
+    'Klaar. Op het blad Ranglijst staat de lijst van licht naar zwaar. Lager weging is lichter.\n\n' +
       'Publiceer daarna de web-app via Implementeren → Nieuwe implementatie → Web-app, ' +
       'als je de pagina ook buiten de spreadsheet wilt openen.'
   );
@@ -113,7 +114,8 @@ function lijstOphalen() {
       throw new Error('Zet het blad eerst klaar. Kies in de spreadsheet Drankjes → Blad klaarzetten.');
     }
     var gewenst = sorteer_(gelezen.drinks);
-    if (gelezen.dirty || !zelfdeVolgorde_(gelezen.drinks, gewenst)) {
+    if (!kopActueel_(sheet) || gelezen.dirty || !zelfdeVolgorde_(gelezen.drinks, gewenst)) {
+      if (!kopActueel_(sheet)) schrijfKop_(sheet);
       schrijf_(sheet, gewenst);
       bouwRanglijst_(ss);
     }
@@ -230,22 +232,28 @@ function bladIsLeeg_(sheet) {
 }
 
 function schrijfKop_(sheet) {
-  var kop = ['Naam', 'Suiker (g/100 ml)', 'Calorieën (kcal/100 ml)', 'Notitie', 'Toegevoegd', 'Rang', 'Id'];
+  var kop = ['Naam', 'Suiker (g/100 ml)', 'Calorieën (kcal/100 ml)', 'Ingrediënten', 'Toelichting', 'Weging', 'Toegevoegd', 'Id'];
   sheet.getRange(1, 1, 1, kop.length).setValues([kop]);
   stijlDataBlad_(sheet, 0);
 }
 
+function kopActueel_(sheet) {
+  var kop = sheet.getRange(1, 1, 1, 8).getValues()[0];
+  return kop.map(sleutelVanKop_).join('|') === 'naam|suiker|kcal|ingredienten|toelichting|weging|toegevoegd|id';
+}
+
 function stijlDataBlad_(sheet, aantal) {
   sheet.setFrozenRows(1);
-  sheet.setColumnWidth(1, 320);
-  sheet.setColumnWidth(2, 160);
-  sheet.setColumnWidth(3, 180);
-  sheet.setColumnWidth(4, 320);
-  sheet.setColumnWidth(5, 120);
-  sheet.setColumnWidth(6, 80);
-  sheet.setColumnWidth(7, 110);
-  sheet.hideColumns(7);
-  var kop = sheet.getRange(1, 1, 1, 7);
+  sheet.setColumnWidth(1, 280);
+  sheet.setColumnWidth(2, 140);
+  sheet.setColumnWidth(3, 160);
+  sheet.setColumnWidth(4, 360);
+  sheet.setColumnWidth(5, 360);
+  sheet.setColumnWidth(6, 90);
+  sheet.setColumnWidth(7, 120);
+  sheet.setColumnWidth(8, 110);
+  sheet.hideColumns(8);
+  var kop = sheet.getRange(1, 1, 1, 8);
   kop.setBackground('#1e6a45');
   kop.setFontColor('#ffffff');
   kop.setFontWeight('bold');
@@ -271,12 +279,12 @@ function stijlDataBlad_(sheet, aantal) {
     .setGradientMinpoint('#1e6a45')
     .setGradientMidpointWithValue('#e6c36a', SpreadsheetApp.InterpolationType.PERCENTILE, '50')
     .setGradientMaxpoint('#9d3a32')
-    .setRanges([sheet.getRange('B2:B500')])
+    .setRanges([sheet.getRange('F2:F500')])
     .build();
   sheet.setConditionalFormatRules([kleur]);
 
   if (!sheet.getFilter()) {
-    sheet.getRange('A1:F500').createFilter();
+    sheet.getRange('A1:G500').createFilter();
   }
   vernieuwGrafiek_(sheet, aantal);
 }
@@ -285,26 +293,26 @@ function schrijf_(sheet, drinks) {
   var gewenst = sorteer_(drinks);
   var laatste = Math.max(sheet.getLastRow(), 1);
   if (laatste > 1) {
-    sheet.getRange(2, 1, laatste - 1, 7).clearContent();
+    sheet.getRange(2, 1, laatste - 1, 8).clearContent();
   }
-  var stijl = formuleStijl_();
   if (gewenst.length) {
-    var rijen = gewenst.map(function (drank, index) {
-      var row = index + 2;
+    var rijen = gewenst.map(function (drank) {
+      var beoordeeld = metOordeel_(drank);
       return [
-        alsTekst_(drank.naam),
-        drank.suiker,
-        drank.kcal,
-        alsTekst_(drank.notitie),
-        drank.toegevoegd,
-        rangFormule_(row, stijl),
-        drank.id
+        alsTekst_(beoordeeld.naam),
+        beoordeeld.suiker,
+        beoordeeld.kcal,
+        alsTekst_(beoordeeld.ingredienten || ''),
+        alsTekst_(beoordeeld.toelichting || ''),
+        beoordeeld.weging,
+        beoordeeld.toegevoegd,
+        beoordeeld.id
       ];
     });
-    sheet.getRange(2, 1, rijen.length, 7).setValues(rijen);
-    sheet.getRange(2, 2, rijen.length, 1).setNumberFormat('0.00');
-    sheet.getRange(2, 3, rijen.length, 1).setNumberFormat('0.0');
-    sheet.getRange(2, 4, rijen.length, 1).setWrap(true);
+    sheet.getRange(2, 1, rijen.length, 8).setValues(rijen);
+    sheet.getRange(2, 2, rijen.length, 2).setNumberFormat('0.00');
+    sheet.getRange(2, 6, rijen.length, 1).setNumberFormat('0.0');
+    sheet.getRange(2, 4, rijen.length, 2).setWrap(true);
   }
   stijlDataBlad_(sheet, gewenst.length);
 }
@@ -317,9 +325,10 @@ function vernieuwGrafiek_(sheet, aantal) {
   var grafiek = sheet
     .newChart()
     .setChartType(Charts.ChartType.BAR)
-    .addRange(sheet.getRange(1, 1, aantal + 1, 2))
-    .setPosition(2, 9, 0, 0)
-    .setOption('title', 'Suiker per 100 ml')
+    .addRange(sheet.getRange(1, 1, aantal + 1, 1))
+    .addRange(sheet.getRange(1, 6, aantal + 1, 1))
+    .setPosition(2, 10, 0, 0)
+    .setOption('title', 'Weging, lager is lichter')
     .setOption('legend', { position: 'none' })
     .setOption('height', 320)
     .setOption('width', 520)
@@ -336,23 +345,26 @@ function bouwRanglijst_(ss) {
   });
   blad.getRange(1, 1, 1, 5).setValues([[
     'Naam',
+    'Weging',
     'Suiker (g/100 ml)',
     'Calorieën (kcal/100 ml)',
-    'Notitie',
-    'Rang'
+    'Toelichting'
   ]]);
   var kop = blad.getRange(1, 1, 1, 5);
   kop.setBackground('#1e6a45');
   kop.setFontColor('#ffffff');
   kop.setFontWeight('bold');
   blad.setFrozenRows(1);
-  blad.setColumnWidth(1, 320);
-  blad.setColumnWidth(2, 160);
-  blad.setColumnWidth(3, 180);
-  blad.setColumnWidth(4, 320);
-  blad.setColumnWidth(5, 80);
+  blad.setColumnWidth(1, 280);
+  blad.setColumnWidth(2, 90);
+  blad.setColumnWidth(3, 150);
+  blad.setColumnWidth(4, 180);
+  blad.setColumnWidth(5, 420);
   blad.getRange('A2').setFormula(queryFormule_(formuleStijl_()));
-  blad.getRange('B:C').setNumberFormat('0.00');
+  blad.getRange('A:A').setWrap(true);
+  blad.getRange('B:B').setNumberFormat('0.0');
+  blad.getRange('C:D').setNumberFormat('0.00');
+  blad.getRange('E:E').setWrap(true);
 }
 
 function bouwUitleg_(ss) {
@@ -361,12 +373,11 @@ function bouwUitleg_(ss) {
   var regels = [
     ['Drankjes die je lekker vindt'],
     [''],
-    ['Het blad Ranglijst staat altijd van licht naar zwaar. Dat blad open je op je telefoon in de Google Sheets-app.'],
-    ['Nieuwe drankjes komen op het blad Drankjes, of via de webpagina.'],
-    ['Vul minstens de naam en de suiker per 100 ml in. Calorieën mag leeg: dan rekent de pagina 4 kcal per gram suiker.'],
+    ['Het blad Ranglijst staat van licht naar zwaar. Dat blad open je op je telefoon in de Google Sheets-app.'],
+    ['Een nieuwe drank typ je op de webpagina. Die zoekt het etiket op en vult suiker, calorieën en ingrediënten in.'],
     [''],
-    ['Sortering: minste suiker per 100 ml, daarna minste calorieën, daarna de naam.'],
-    ['Tot 5 g per 100 ml heet lichter, tot 8 g gemiddeld, daarboven zwaar.'],
+    ['De weging start bij de suiker per 100 ml. Zoetstof, kleurstof E150d, fosforzuur en een thee-extract onder 1% maken de weging hoger. Kombucha en minstens 1% sap maken hem lager.'],
+    ['Lager is lichter. Tot 4 is lichter, tot 8 gemiddeld, daarboven zwaar.'],
     [''],
     ['De webpagina publiceer je eenmalig via Implementeren → Nieuwe implementatie → Web-app.'],
     ['Uitvoeren als: Ik. Wie heeft toegang: Alleen ikzelf. Het webadres staat daarna onder Drankjes → Webadres tonen.']
@@ -387,6 +398,89 @@ function ordenBladen_(ss) {
   });
   var rang = ss.getSheetByName(BLAD_RANG);
   if (rang) ss.setActiveSheet(rang);
+}
+
+function zoekDranken(term) {
+  var zoek = ruimte_(term);
+  if (zoek.length < 2) return { treffers: [], fout: 'Typ minstens twee letters.' };
+  var treffers = profielTreffers_(zoek);
+  var opgezocht = leesZoekantwoord_(zoek);
+  var fout = opgezocht.fout && !treffers.length ? opgezocht.fout : '';
+  if (opgezocht.products) {
+    var gezien = {};
+    var gevonden = [];
+    opgezocht.products.forEach(function (product) {
+      var treffer = trefferVanProduct_(zoek, product);
+      if (!treffer) return;
+      if (treffer.code && gezien[treffer.code]) return;
+      if (treffer.code) gezien[treffer.code] = true;
+      gevonden.push(treffer);
+    });
+    gevonden.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.suiker - b.suiker;
+    });
+    treffers = treffers.concat(gevonden);
+  }
+  if (!fout && !treffers.length) fout = 'Geen etiket gevonden. Vul de suiker zelf in.';
+  return {
+    treffers: treffers.slice(0, 5).map(function (item) {
+      return {
+        naam: item.naam,
+        merk: item.merk || '',
+        suiker: item.suiker,
+        kcal: item.kcal,
+        ingredienten: item.ingredienten,
+        weging: item.weging,
+        toelichting: item.toelichting,
+        url: item.url || '',
+        bron: item.bron || 'openfoodfacts'
+      };
+    }),
+    fout: fout
+  };
+}
+
+function leesZoekantwoord_(zoek) {
+  var query = 'search_terms=' + encodeURIComponent(zoek)
+    + '&search_simple=1&action=process&json=1&page_size=8'
+    + '&fields=code,product_name,brands,ingredients_text,ingredients_text_nl,nutriments,countries_tags';
+  var urls = [
+    'https://world.openfoodfacts.org/cgi/search.pl?' + query,
+    'https://world.openfoodfacts.net/cgi/search.pl?' + query
+  ];
+  var fout = 'De drank is niet opgezocht. Vul de suiker zelf in.';
+  for (var i = 0; i < urls.length; i++) {
+    try {
+      var response = UrlFetchApp.fetch(urls[i], {
+        muteHttpExceptions: true,
+        headers: { 'User-Agent': 'Drankjeslijst/1.0 (personal spreadsheet)' }
+      });
+      if (response.getResponseCode() !== 200) {
+        fout = 'De opzoekdienst antwoordt niet. Vul de suiker zelf in.';
+        continue;
+      }
+      var data = JSON.parse(response.getContentText() || '{}');
+      if (!data || !Array.isArray(data.products)) {
+        fout = 'De opzoekdienst antwoordt niet. Vul de suiker zelf in.';
+        continue;
+      }
+      return { products: data.products, fout: '' };
+    } catch (err) {
+      fout = 'De drank is niet opgezocht. Vul de suiker zelf in.';
+    }
+  }
+  return { products: [], fout: fout };
+}
+
+function scoringJs() {
+  var functies = [
+    rond_, norm_, tekstGetal_, heeftZoetstof_, heeftE150d_, heeftFosforzuur_,
+    heeftToegevoegdeCafeine_, heeftKombucha_, procenten_, venster_, isTheeVenster_,
+    theeExtractOnderEen_, sapMinstensEen_, wegingVan_, bandVan_, profielen_,
+    profielPast_, bekendProfiel_, metOordeel_
+  ];
+  return functies.map(function (fn) { return fn.toString(); }).join('\n');
 }
 
 function lees_(sheet) {
@@ -434,13 +528,13 @@ function lees_(sheet) {
     } else {
       kcal = rond_(kcal, 1);
     }
-    var notitie = kolom.notitie === undefined ? '' : ruimte_(row[kolom.notitie]);
+    var ingredienten = kolom.ingredienten === undefined ? '' : ruimte_(row[kolom.ingredienten]);
     if (naam.length > 80) {
       naam = naam.slice(0, 80).trim();
       dirty = true;
     }
-    if (notitie.length > 200) {
-      notitie = notitie.slice(0, 200).trim();
+    if (ingredienten.length > 500) {
+      ingredienten = ingredienten.slice(0, 500).trim();
       dirty = true;
     }
     var id = kolom.id === undefined ? '' : ruimte_(row[kolom.id]);
@@ -454,14 +548,18 @@ function lees_(sheet) {
       toegevoegd = vandaag;
       dirty = true;
     }
-    drinks.push({
+    var beoordeeld = metOordeel_({
       id: id,
       naam: naam,
       suiker: suiker,
       kcal: kcal,
-      notitie: notitie,
+      ingredienten: ingredienten,
       toegevoegd: toegevoegd
     });
+    var opgeslagen = kolom.weging === undefined ? null : getalVanCel_(row[kolom.weging]);
+    if (opgeslagen === null || Math.abs(opgeslagen - beoordeeld.weging) > 0.05) dirty = true;
+    if (ingredienten !== beoordeeld.ingredienten) dirty = true;
+    drinks.push(beoordeeld);
     if (drinks.length > MAX_DRANKJES) {
       throw new Error('De lijst heeft meer dan ' + MAX_DRANKJES + ' drankjes.');
     }
@@ -492,16 +590,16 @@ function leesInvoer_(data, bestaand) {
     if (kcal > 900) throw new Error('Dat zijn wel heel veel calorieën per 100 ml. Controleer de komma.');
     kcal = rond_(kcal, 1);
   }
-  var notitie = ruimte_(data.notitie || '');
-  if (notitie.length > 200) throw new Error('De notitie is te lang.');
-  return {
+  var ingredienten = ruimte_(data.ingredienten || '');
+  if (ingredienten.length > 500) throw new Error('De ingrediënten zijn te lang.');
+  return metOordeel_({
     id: bestaand ? bestaand.id : nieuwId_({}),
     naam: naam,
     suiker: suiker,
     kcal: kcal,
-    notitie: notitie,
+    ingredienten: ingredienten,
     toegevoegd: bestaand ? bestaand.toegevoegd : vandaag_()
-  };
+  });
 }
 
 function antwoord_(drinks, warnings) {
@@ -519,44 +617,59 @@ function antwoord_(drinks, warnings) {
 }
 
 function verrijk_(drank, rang) {
-  var glasSuiker = rond_(drank.suiker * (GLAS_ML / 100), 2);
-  var band = 'zwaar';
-  if (drank.suiker <= 5) band = 'lichter';
-  else if (drank.suiker <= 8) band = 'gemiddeld';
+  var beoordeeld = metOordeel_(drank);
+  var glasSuiker = rond_(beoordeeld.suiker * (GLAS_ML / 100), 2);
   return {
-    id: drank.id,
-    naam: drank.naam,
-    suiker: drank.suiker,
-    kcal: drank.kcal,
-    notitie: drank.notitie,
-    toegevoegd: drank.toegevoegd,
+    id: beoordeeld.id,
+    naam: beoordeeld.naam,
+    suiker: beoordeeld.suiker,
+    kcal: beoordeeld.kcal,
+    ingredienten: beoordeeld.ingredienten,
+    toelichting: beoordeeld.toelichting,
+    notitie: beoordeeld.toelichting,
+    weging: beoordeeld.weging,
+    toegevoegd: beoordeeld.toegevoegd,
     rang: rang,
-    band: band,
+    band: bandVan_(beoordeeld.weging),
     glasMl: GLAS_ML,
     glasSuiker: glasSuiker,
-    glasKcal: rond_(drank.kcal * (GLAS_ML / 100), 1),
+    glasKcal: rond_(beoordeeld.kcal * (GLAS_ML / 100), 1),
     klontjes: rond_(glasSuiker / 4, 1)
   };
 }
 
 function voorbeeldDrankjes_() {
   var vandaag = vandaag_();
-  return [
-    { id: 'ice-tea', naam: 'Ice tea (Lipton Peach)', suiker: 3, kcal: 13, notitie: 'Lipton Peach: gezoet met suiker en stevia.', toegevoegd: vandaag },
-    { id: 'yugen', naam: 'Yugen Kombucha Passion Fruit Elderflower', suiker: 3.8, kcal: 15, notitie: 'Gefermenteerde thee met 4% passievruchtsap.', toegevoegd: vandaag },
-    { id: 'almdudler', naam: 'Almdudler', suiker: 8, kcal: 33, notitie: 'Oostenrijkse kruidenlimonade.', toegevoegd: vandaag },
-    { id: 'cola', naam: 'Coca-Cola', suiker: 10.6, kcal: 42, notitie: 'Klassieke cola.', toegevoegd: vandaag }
-  ];
+  return ['lipton', 'yugen', 'almdudler', 'cola'].map(function (sleutel) {
+    var profiel = profielOpSleutel_(sleutel);
+    return {
+      id: sleutel === 'lipton' ? 'ice-tea' : sleutel,
+      naam: profiel.naam,
+      suiker: profiel.suiker,
+      kcal: profiel.kcal,
+      ingredienten: profiel.ingredienten,
+      toegevoegd: vandaag
+    };
+  });
 }
 
 function sorteer_(drinks) {
   return drinks.slice().sort(function (a, b) {
+    var wa = wegingGetal_(a);
+    var wb = wegingGetal_(b);
+    if (wa !== wb) return wa - wb;
     if (a.suiker !== b.suiker) return a.suiker - b.suiker;
     if (a.kcal !== b.kcal) return a.kcal - b.kcal;
     var naam = String(a.naam).localeCompare(String(b.naam), 'nl', { sensitivity: 'base' });
     if (naam !== 0) return naam;
     return String(a.id).localeCompare(String(b.id));
   });
+}
+
+function wegingGetal_(drank) {
+  var weging = getalVanCel_(drank.weging);
+  if (weging === null) weging = wegingVan_(drank.suiker, drank.ingredienten || '').weging;
+  return weging;
 }
 
 function zelfdeVolgorde_(huidig, gewenst) {
@@ -625,7 +738,7 @@ function alsTekst_(waarde) {
 
 function rond_(getal, plaatsen) {
   var factor = Math.pow(10, plaatsen);
-  return Math.round((getal + Number.EPSILON) * factor) / factor;
+  return Math.round((Number(getal) + Number.EPSILON) * factor) / factor;
 }
 
 function nieuwId_(bezet) {
@@ -672,20 +785,11 @@ function proefFormuleStijl_() {
   }
 }
 
-function rangFormule_(row, stijl) {
-  if (stijl === 'nl') {
-    return '=ALS(A' + row + '="";"";AANTAL.ALS.VOORWAARDEN($B$2:$B$500;"<"&B' + row + ')+AANTAL.ALS.VOORWAARDEN($B$2:$B$500;B' + row + ';$C$2:$C$500;"<"&C' + row + ')+1)';
-  }
-  var formula =
-    '=IF(A' + row + '="","",COUNTIFS($B$2:$B$500,"<"&B' + row + ')+COUNTIFS($B$2:$B$500,B' + row + ',$C$2:$C$500,"<"&C' + row + ')+1)';
-  return stijl === 'en-puntkomma' ? formula.replace(/,/g, ';') : formula;
-}
-
 function queryFormule_(stijl) {
-  var query = 'select A, B, C, D, F where A is not null order by B, C, A';
-  if (stijl === 'nl') return '=ALS.FOUT(QUERY(Drankjes!A2:G;"' + query + '";0);"")';
-  if (stijl === 'en-puntkomma') return '=IFERROR(QUERY(Drankjes!A2:G;"' + query + '";0);"")';
-  return '=IFERROR(QUERY(Drankjes!A2:G,"' + query + '",0),"")';
+  var query = 'select A, F, B, C, E where A is not null order by F, B, C, A';
+  if (stijl === 'nl') return '=ALS.FOUT(QUERY(Drankjes!A2:H;"' + query + '";0);"")';
+  if (stijl === 'en-puntkomma') return '=IFERROR(QUERY(Drankjes!A2:H;"' + query + '";0);"")';
+  return '=IFERROR(QUERY(Drankjes!A2:H,"' + query + '",0),"")';
 }
 
 function melding_(tekst) {
@@ -694,4 +798,312 @@ function melding_(tekst) {
   } catch (err) {
     console.log(tekst);
   }
+}
+
+function norm_(waarde) {
+  return String(waarde || '')
+    .toLowerCase()
+    .replace(/ß/g, 'ss')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function tekstGetal_(getal, plaatsen) {
+  return rond_(getal, plaatsen).toFixed(plaatsen).replace(/\.?0+$/, '').replace('.', ',');
+}
+
+function heeftZoetstof_(tekst) {
+  return /stevia|steviol|aspartam|acesulfa|cyclama|sucralose|sacharin/.test(tekst)
+    || /e\s*960|e\s*951|e\s*950|e\s*952|e\s*955|e\s*954/.test(tekst);
+}
+
+function heeftE150d_(tekst) {
+  return /e\s*150\s*d|ammoniumsulfiet|ammoniumsulfit|ammoniaksulfit|zuckerkulor|ammonium\s+sulfiet|ammonium\s+sulfit|sulfite\s+ammonia|ammonia\s+sulfite/.test(tekst);
+}
+
+function heeftFosforzuur_(tekst) {
+  return /fosforzuur|phosphoric|phosphorique|phosphorsaure|e\s*338/.test(tekst);
+}
+
+function heeftToegevoegdeCafeine_(tekst) {
+  return /arom\w*\s+cafeine|cafeine\s+arom|arom\w*\s+caffeine|caffeine\s+arom|waaronder\s+cafeine|waaronder\s+caffeine/.test(tekst);
+}
+
+function heeftKombucha_(tekst) {
+  return /kombucha|scoby/.test(tekst);
+}
+
+function procenten_(tekst) {
+  var re = /(\d+(?:[.,]\d+)?)\s*%/g;
+  var hits = [];
+  var match;
+  while ((match = re.exec(tekst))) {
+    hits.push({
+      waarde: parseFloat(match[1].replace(',', '.')),
+      index: match.index,
+      lengte: match[0].length
+    });
+  }
+  return hits;
+}
+
+function venster_(tekst, hit) {
+  var start = Math.max(0, hit.index - 40);
+  var end = Math.min(tekst.length, hit.index + hit.lengte + 40);
+  return tekst.slice(start, end);
+}
+
+function isTheeVenster_(stuk) {
+  return /thee|tea extract|tea-extract|black tea|extrait de the|tee-extrakt|tee extrakt|teeextrakt|zwarte thee|groene thee|thee-extract|thee extract/.test(stuk);
+}
+
+function theeExtractOnderEen_(tekst) {
+  var hits = procenten_(tekst);
+  var laag = false;
+  for (var i = 0; i < hits.length; i++) {
+    var stuk = venster_(tekst, hits[i]);
+    if (!isTheeVenster_(stuk)) continue;
+    if (hits[i].waarde >= 1) return false;
+    laag = true;
+  }
+  return laag;
+}
+
+function sapMinstensEen_(tekst) {
+  var hits = procenten_(tekst);
+  for (var i = 0; i < hits.length; i++) {
+    if (hits[i].waarde < 1) continue;
+    if (/sap|jus|juice|passie|vrucht|fruit/.test(venster_(tekst, hits[i]))) return true;
+  }
+  return false;
+}
+
+function wegingVan_(suiker, ingredienten) {
+  var basis = rond_(Number(suiker), 2);
+  var tekst = norm_(ingredienten);
+  if (!tekst) {
+    return {
+      weging: rond_(basis, 1),
+      toelichting: 'Alleen de suiker telt mee. De ingrediënten zijn niet opgezocht.'
+    };
+  }
+  var weging = basis;
+  var delen = [];
+  if (heeftZoetstof_(tekst)) {
+    weging += 2;
+    delen.push('zoetstof +2');
+  }
+  if (heeftE150d_(tekst)) {
+    weging += 1.5;
+    delen.push('E150d +1,5');
+  }
+  if (heeftFosforzuur_(tekst)) {
+    weging += 1.5;
+    delen.push('fosforzuur +1,5');
+  }
+  if (heeftToegevoegdeCafeine_(tekst)) {
+    weging += 0.5;
+    delen.push('cafeïne +0,5');
+  }
+  if (heeftKombucha_(tekst)) {
+    weging -= 1.5;
+    delen.push('kombucha −1,5');
+  } else if (theeExtractOnderEen_(tekst)) {
+    weging += 1;
+    delen.push('weinig thee +1');
+  }
+  if (sapMinstensEen_(tekst)) {
+    weging -= 0.5;
+    delen.push('sap −0,5');
+  }
+  weging = rond_(weging, 1);
+  var kern = 'Weging ' + tekstGetal_(weging, 1) + ': suiker ' + tekstGetal_(basis, 2);
+  var toelichting = delen.length ? kern + ', ' + delen.join(', ') + '.' : kern + '.';
+  if (toelichting.length > 280) toelichting = toelichting.slice(0, 277).trim() + '...';
+  return { weging: weging, toelichting: toelichting };
+}
+
+function bandVan_(weging) {
+  if (weging <= 4) return 'lichter';
+  if (weging <= 8) return 'gemiddeld';
+  return 'zwaar';
+}
+
+function profielen_() {
+  return [
+    {
+      sleutel: 'yugen',
+      naam: 'Yugen Kombucha Passion Fruit Elderflower',
+      merk: 'Yugen',
+      suiker: 3.8,
+      kcal: 15,
+      ingredienten: 'Water, kombuchacultuur, biologische groene en zwarte thee, biologische suiker, biologische kruideninfusie (vlierbloesem, aardbei, limoen, nootmuskaat), biologisch passievruchtsap (4%).'
+    },
+    {
+      sleutel: 'lipton',
+      naam: 'Ice tea (Lipton Peach)',
+      merk: 'Lipton',
+      suiker: 3,
+      kcal: 13,
+      ingredienten: "Water, suiker, fructose, voedingszuren (appelzuur, citroenzuur), thee-extract (0,12%), perziksap uit concentraat (0,1%), aroma's, zoetstof (steviolglycosiden van stevia)."
+    },
+    {
+      sleutel: 'almdudler',
+      naam: 'Almdudler',
+      merk: 'Almdudler',
+      suiker: 8,
+      kcal: 33,
+      ingredienten: 'Water, suiker, koolzuur, citroenzuur, kleurstof ammoniumsulfiet-karamel (E150d), natuurlijke kruidenextracten.'
+    },
+    {
+      sleutel: 'cola',
+      naam: 'Coca-Cola',
+      merk: 'Coca-Cola',
+      suiker: 10.6,
+      kcal: 42,
+      ingredienten: "Sprankelend water, suiker, kleurstof E150d, voedingszuur fosforzuur (E338), natuurlijke aroma's, aroma cafeïne."
+    }
+  ];
+}
+
+function profielOpSleutel_(sleutel) {
+  var lijst = profielen_();
+  for (var i = 0; i < lijst.length; i++) {
+    if (lijst[i].sleutel === sleutel) return lijst[i];
+  }
+  return null;
+}
+
+function profielPast_(sleutel, n) {
+  if (sleutel === 'yugen') {
+    if (n.indexOf('yugen') !== -1) return true;
+    var kombucha = n.indexOf('kombucha') !== -1;
+    var smaak = n.indexOf('passion') !== -1 || n.indexOf('passie') !== -1 || n.indexOf('elder') !== -1 || n.indexOf('vlier') !== -1;
+    return kombucha && smaak;
+  }
+  if (sleutel === 'lipton') {
+    if (n.indexOf('lipton') === -1) return false;
+    return n.indexOf('ice') !== -1 || n.indexOf('ijs') !== -1 || n.indexOf('peach') !== -1 || n.indexOf('perzik') !== -1 || n.indexOf('thee') !== -1 || n.indexOf('tea') !== -1;
+  }
+  if (sleutel === 'almdudler') {
+    if (n.indexOf('almdudler') === -1) return false;
+    return n.indexOf('light') === -1 && n.indexOf('zero') === -1 && n.indexOf('zuckerfrei') === -1 && n.indexOf('suikervrij') === -1;
+  }
+  if (sleutel === 'cola') {
+    var cola = n.indexOf('coca-cola') !== -1 || n.indexOf('coca cola') !== -1 || n.indexOf('cocacola') !== -1;
+    if (!cola) return false;
+    return n.indexOf('zero') === -1 && n.indexOf('light') === -1 && n.indexOf('diet') === -1;
+  }
+  return false;
+}
+
+function bekendProfiel_(naam) {
+  var n = norm_(naam);
+  var lijst = profielen_();
+  for (var i = 0; i < lijst.length; i++) {
+    if (profielPast_(lijst[i].sleutel, n)) return lijst[i];
+  }
+  return null;
+}
+
+function metOordeel_(drank) {
+  var ingredienten = String(drank.ingredienten || '').replace(/\s+/g, ' ').trim();
+  var naam = String(drank.naam || '').replace(/\s+/g, ' ').trim();
+  var profiel = bekendProfiel_(naam);
+  if (profiel && ingredienten.length < 40) ingredienten = profiel.ingredienten;
+  if (ingredienten.length > 500) ingredienten = ingredienten.slice(0, 500).trim();
+  var oordeel = wegingVan_(drank.suiker, ingredienten);
+  var toelichting = oordeel.toelichting;
+  if (toelichting.length > 280) toelichting = toelichting.slice(0, 277).trim() + '...';
+  return {
+    id: drank.id,
+    naam: naam,
+    suiker: drank.suiker,
+    kcal: drank.kcal,
+    ingredienten: ingredienten,
+    toelichting: toelichting,
+    weging: oordeel.weging,
+    toegevoegd: drank.toegevoegd
+  };
+}
+
+function profielTreffers_(zoek) {
+  var n = norm_(zoek);
+  return profielen_().filter(function (profiel) {
+    return profielPast_(profiel.sleutel, n);
+  }).map(profielTreffer_);
+}
+
+function profielTreffer_(profiel) {
+  var oordeel = wegingVan_(profiel.suiker, profiel.ingredienten);
+  return {
+    naam: profiel.naam,
+    merk: profiel.merk,
+    suiker: profiel.suiker,
+    kcal: profiel.kcal,
+    ingredienten: profiel.ingredienten,
+    weging: oordeel.weging,
+    toelichting: oordeel.toelichting,
+    url: '',
+    bron: 'bekend',
+    score: 2
+  };
+}
+
+function trefferVanProduct_(zoek, product) {
+  if (!product) return null;
+  var naam = ruimte_(product.product_name || '');
+  if (!naam) return null;
+  if (naam.length > 80) naam = naam.slice(0, 80).trim();
+  var nutriments = product.nutriments || {};
+  var suiker = getalVanCel_(nutriments.sugars_100g);
+  if (suiker === null || suiker < 0 || suiker > 100) return null;
+  suiker = rond_(suiker, 2);
+  var kcal = getalVanCel_(nutriments['energy-kcal_100g']);
+  if (kcal === null || kcal < 0 || kcal > 900) kcal = rond_(suiker * 4, 1);
+  else kcal = rond_(kcal, 1);
+  var ingredienten = ruimte_(product.ingredients_text_nl || product.ingredients_text || '');
+  if (ingredienten.length > 500) ingredienten = ingredienten.slice(0, 500).trim();
+  var score = overlapScore_(zoek, naam, product.brands, product.countries_tags, ingredienten);
+  if (score <= 0) return null;
+  var oordeel = wegingVan_(suiker, ingredienten);
+  var merk = ruimte_(product.brands || '');
+  if (merk.length > 40) merk = merk.slice(0, 40).trim();
+  var code = ruimte_(product.code || '');
+  return {
+    code: code,
+    naam: naam,
+    merk: merk,
+    suiker: suiker,
+    kcal: kcal,
+    ingredienten: ingredienten,
+    weging: oordeel.weging,
+    toelichting: oordeel.toelichting,
+    url: code ? 'https://world.openfoodfacts.org/product/' + code : '',
+    bron: 'openfoodfacts',
+    score: score
+  };
+}
+
+function overlapScore_(zoek, naam, merk, landen, ingredienten) {
+  var tokens = norm_(zoek).split(/[^a-z0-9]+/).filter(function (token) {
+    return token.length > 1;
+  });
+  if (!tokens.length) return 0;
+  var naamNorm = norm_(naam);
+  var merkNorm = norm_(merk || '');
+  var nameHits = 0;
+  var extra = 0;
+  tokens.forEach(function (token) {
+    if (naamNorm.indexOf(token) !== -1) nameHits++;
+    else if (merkNorm.indexOf(token) !== -1) extra++;
+  });
+  if (!nameHits) return 0;
+  var score = nameHits / tokens.length;
+  if (extra) score += 0.15;
+  var tags = Array.isArray(landen) ? landen.join(' ') : String(landen || '');
+  if (/en:netherlands|en:belgium/.test(tags)) score += 0.3;
+  else if (/en:germany|en:france|en:austria/.test(tags)) score += 0.15;
+  if (ingredienten) score += 0.15;
+  return rond_(score, 3);
 }
