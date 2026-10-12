@@ -1,0 +1,405 @@
+<script>
+const listEl = document.querySelector("#list");
+const summaryEl = document.querySelector("#summary");
+const warningsEl = document.querySelector("#warnings");
+const form = document.querySelector("#form");
+const formTitle = document.querySelector("#form-title");
+const zoekButton = document.querySelector("#zoek");
+const handmatigButton = document.querySelector("#handmatig");
+const opslaanButton = document.querySelector("#opslaan");
+const cancelButton = document.querySelector("#cancel");
+const detailsEl = document.querySelector("#details");
+const hitsEl = document.querySelector("#hits");
+const previewEl = document.querySelector("#preview");
+const errorEl = document.querySelector("#form-error");
+const nameEl = document.querySelector("#sheet-name");
+const timeEl = document.querySelector("#sheet-time");
+const linkEl = document.querySelector("#sheet-link");
+const refreshButton = document.querySelector("#refresh");
+const naamInput = document.querySelector("#naam");
+const suikerInput = document.querySelector("#suiker");
+const kcalInput = document.querySelector("#kcal");
+const ingredientenInput = document.querySelector("#ingredienten");
+
+const BAND = { lichter: "Lichter", gemiddeld: "Gemiddeld", zwaar: "Zwaar" };
+
+let drinks = [];
+let editingId = null;
+let pendingDeleteId = null;
+let savedId = null;
+let hits = [];
+let gekozenSleutel = "";
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === false) return;
+    if (key === "class") node.className = value;
+    else node.setAttribute(key, value);
+  });
+  (children || []).forEach((child) => {
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  });
+  return node;
+}
+
+function formatAmount(value) {
+  return Number(value).toLocaleString("nl-NL", { maximumFractionDigits: 2 });
+}
+
+function parseNl(raw) {
+  const text = String(raw ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function klontjesWoord(value) {
+  return value > 0 && value <= 1 ? "klontje" : "klontjes";
+}
+
+function kicker(drink) {
+  if (drink.rang !== 1) return BAND[drink.band] || "";
+  if (drink.band === "lichter") return "Lichtste keuze";
+  return `Lichtste van deze lijst · ${BAND[drink.band]}`;
+}
+
+function versus(drink, lightest) {
+  if (!lightest || drink.id === lightest.id) return "Lichtste weging op deze lijst";
+  const diff = Math.round((drink.weging - lightest.weging) * 10) / 10;
+  return `${formatAmount(diff)} zwaarder dan ${lightest.naam}`;
+}
+
+function compare(a, b) {
+  const wa = Number(a.weging);
+  const wb = Number(b.weging);
+  if (wa !== wb) return wa - wb;
+  if (a.suiker !== b.suiker) return a.suiker - b.suiker;
+  if (a.kcal !== b.kcal) return a.kcal - b.kcal;
+  const name = String(a.naam).localeCompare(String(b.naam), "nl", { sensitivity: "base" });
+  if (name !== 0) return name;
+  return String(a.id).localeCompare(String(b.id));
+}
+
+function leesFout(error) {
+  const raw = error && error.message ? error.message : String(error || "Er ging iets mis.");
+  return raw.replace(/^Exception:\s*/, "");
+}
+
+function showError(message) {
+  errorEl.hidden = !message;
+  errorEl.textContent = message || "";
+}
+
+function run(name, arg) {
+  return new Promise((resolve, reject) => {
+    const call = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => reject(error));
+    if (arg === undefined) call[name]();
+    else call[name](arg);
+  });
+}
+
+function beoordeelLokaal(drank) {
+  if (typeof metOordeel_ === "function") return metOordeel_(drank);
+  return Object.assign({}, drank, {
+    weging: drank.suiker,
+    toelichting: "Alleen de suiker telt mee. De ingrediënten zijn niet opgezocht.",
+    ingredienten: drank.ingredienten || "",
+  });
+}
+
+function toonDetails(open) {
+  detailsEl.hidden = !open;
+}
+
+function setEditing(drink) {
+  editingId = drink ? drink.id : null;
+  pendingDeleteId = null;
+  gekozenSleutel = "";
+  hits = [];
+  formTitle.textContent = drink ? "Drankje aanpassen" : "Drankje toevoegen";
+  opslaanButton.textContent = drink ? "Opslaan" : "Op de lijst";
+  cancelButton.hidden = !drink;
+  if (!drink) {
+    form.reset();
+    toonDetails(false);
+  } else {
+    naamInput.value = drink.naam;
+    suikerInput.value = formatAmount(drink.suiker);
+    kcalInput.value = formatAmount(drink.kcal);
+    ingredientenInput.value = drink.ingredienten || "";
+    toonDetails(true);
+  }
+  renderHits();
+  updatePreview();
+  render();
+}
+
+function payloadFromForm() {
+  const kcalText = kcalInput.value.trim();
+  const suikerText = suikerInput.value.trim();
+  if (!naamInput.value.trim()) throw new Error("Vul een naam in.");
+  if (!suikerText) throw new Error("Vul de suiker per 100 ml in.");
+  if (parseNl(suikerText) === null) throw new Error("Suiker moet een getal zijn, bijvoorbeeld 3,8.");
+  if (kcalText && parseNl(kcalText) === null) throw new Error("Calorieën moeten een getal zijn.");
+  const data = {
+    naam: naamInput.value,
+    suiker: suikerText,
+    ingredienten: ingredientenInput.value,
+  };
+  if (kcalText) data.kcal = kcalText;
+  if (editingId) data.id = editingId;
+  return data;
+}
+
+function updatePreview() {
+  if (detailsEl.hidden) {
+    previewEl.textContent = "";
+    return;
+  }
+  const suiker = parseNl(suikerInput.value);
+  if (suiker === null || suiker < 0) {
+    previewEl.textContent = "";
+    return;
+  }
+  const kcal = parseNl(kcalInput.value);
+  const beoordeeld = beoordeelLokaal({
+    id: editingId || "__nieuw__",
+    naam: naamInput.value.trim() || "Dit drankje",
+    suiker,
+    kcal: kcal === null ? Math.round(suiker * 4 * 10) / 10 : kcal,
+    ingredienten: ingredientenInput.value,
+    toegevoegd: "",
+  });
+  const others = drinks.filter((drink) => drink.id !== editingId);
+  const ordered = [...others, beoordeeld].sort(compare);
+  const place = ordered.findIndex((drink) => drink.id === beoordeeld.id) + 1;
+  previewEl.textContent = `${beoordeeld.naam} komt op plek ${place} van ${ordered.length}. ${beoordeeld.toelichting}`;
+}
+
+function renderHits() {
+  hitsEl.hidden = hits.length === 0;
+  hitsEl.replaceChildren();
+  hits.forEach((hit) => {
+    const sleutel = `${hit.bron}|${hit.naam}|${hit.suiker}`;
+    const button = el("button", {
+      type: "button",
+      class: `hit${sleutel === gekozenSleutel ? " is-selected" : ""}`,
+    });
+    button.append(
+      el("strong", {}, [hit.naam]),
+      el("span", {}, [hit.bron === "bekend" ? "Bekend etiket" : (hit.merk || "Open Food Facts")]),
+      el("span", {}, [`${formatAmount(hit.suiker)} g suiker · weging ${formatAmount(hit.weging)}`]),
+    );
+    button.addEventListener("click", () => kiesTreffer(hit, sleutel));
+    hitsEl.append(button);
+  });
+}
+
+function kiesTreffer(hit, sleutel) {
+  gekozenSleutel = sleutel;
+  naamInput.value = hit.naam;
+  suikerInput.value = formatAmount(hit.suiker);
+  kcalInput.value = formatAmount(hit.kcal);
+  ingredientenInput.value = hit.ingredienten || "";
+  toonDetails(true);
+  renderHits();
+  updatePreview();
+  opslaanButton.focus();
+}
+
+function render() {
+  const lightest = drinks[0];
+  if (!drinks.length) {
+    summaryEl.textContent = "Nog niets op de lijst. Zoek een drankje dat je lekker vindt.";
+  } else if (drinks.length === 1) {
+    summaryEl.textContent = `${lightest.naam} staat alleen op de lijst, met weging ${formatAmount(lightest.weging)}.`;
+  } else {
+    summaryEl.textContent = `${lightest.naam} is de lichtste van je ${drinks.length} drankjes, met weging ${formatAmount(lightest.weging)}.`;
+  }
+
+  listEl.replaceChildren();
+  if (!drinks.length) {
+    listEl.append(el("li", { class: "empty" }, ["De lijst is leeg."]));
+    return;
+  }
+
+  const scale = Math.max(1, ...drinks.map((drink) => Math.max(0, drink.weging)));
+  drinks.forEach((drink) => {
+    const width = Math.min(100, (Math.max(0, drink.weging) / scale) * 100);
+    const card = el("article", {
+      class: `drink band-${drink.band}${drink.rang === 1 ? " is-first" : ""}${drink.id === savedId ? " is-fresh" : ""}`,
+    });
+    card.append(el("p", { class: "rank" }, [String(drink.rang)]));
+    const main = el("div", { class: "main" });
+    const title = el("div", { class: "title-row" });
+    title.append(el("div", {}, [
+      el("p", { class: "kicker" }, [kicker(drink)]),
+      el("h3", {}, [drink.naam]),
+    ]));
+    title.append(el("p", { class: "score" }, [
+      el("strong", {}, [formatAmount(drink.weging)]),
+      el("span", {}, ["weging"]),
+    ]));
+    main.append(title);
+    main.append(el("p", { class: "versus" }, [versus(drink, lightest)]));
+    if (drink.toelichting) main.append(el("p", { class: "note" }, [drink.toelichting]));
+    if (drink.ingredienten) main.append(el("p", { class: "ingredients" }, [drink.ingredienten]));
+    const meter = el("div", { class: "meter" });
+    meter.setAttribute("aria-hidden", "true");
+    const bar = el("span");
+    bar.style.width = `${width}%`;
+    meter.append(bar);
+    main.append(meter);
+    main.append(el("p", { class: "meta" }, [
+      el("span", {}, [`${formatAmount(drink.suiker)} g suiker · ${formatAmount(drink.kcal)} kcal / 100 ml`]),
+      el("span", {}, [
+        `Glas ${drink.glasMl} ml: ${formatAmount(drink.glasSuiker)} g · ${formatAmount(drink.klontjes)} ${klontjesWoord(drink.klontjes)}`,
+      ]),
+    ]));
+
+    const actions = el("div", { class: "actions" });
+    if (pendingDeleteId === drink.id) {
+      main.append(el("p", { class: "confirm" }, ["Weghalen uit de lijst?"]));
+      const yes = el("button", { type: "button", class: "danger" }, ["Ja, weghalen"]);
+      yes.addEventListener("click", () => removeDrink(drink.id));
+      const no = el("button", { type: "button" }, ["Laten staan"]);
+      no.addEventListener("click", () => {
+        pendingDeleteId = null;
+        render();
+      });
+      actions.append(yes, no);
+    } else {
+      const edit = el("button", { type: "button" }, ["Bewerken"]);
+      edit.addEventListener("click", () => {
+        setEditing(drink);
+        form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        naamInput.focus();
+      });
+      const remove = el("button", { type: "button" }, ["Weghalen"]);
+      remove.addEventListener("click", () => {
+        pendingDeleteId = drink.id;
+        render();
+      });
+      actions.append(edit, remove);
+    }
+    main.append(actions);
+    card.append(main);
+    const item = el("li", { "data-id": drink.id });
+    item.append(card);
+    listEl.append(item);
+  });
+}
+
+function applyPayload(payload) {
+  drinks = payload.drinks || [];
+  nameEl.textContent = payload.spreadsheet || "";
+  if (payload.spreadsheetUrl) linkEl.href = payload.spreadsheetUrl;
+  if (payload.gewijzigd) {
+    timeEl.textContent = `Bijgewerkt ${new Date(payload.gewijzigd).toLocaleString("nl-NL")}`;
+  } else {
+    timeEl.textContent = "";
+  }
+  const warnings = payload.warnings || [];
+  warningsEl.hidden = warnings.length === 0;
+  warningsEl.replaceChildren();
+  warnings.forEach((warning) => warningsEl.append(el("p", {}, [warning])));
+  render();
+}
+
+async function load() {
+  savedId = null;
+  try {
+    applyPayload(await run("lijstOphalen"));
+    showError("");
+  } catch (error) {
+    summaryEl.textContent = leesFout(error);
+  }
+}
+
+async function removeDrink(id) {
+  savedId = null;
+  try {
+    pendingDeleteId = null;
+    applyPayload(await run("drankjeWeghalen", id));
+    if (editingId === id) setEditing(null);
+  } catch (error) {
+    showError(leesFout(error));
+    await load();
+  }
+}
+
+async function opslaan() {
+  showError("");
+  let data;
+  try {
+    data = payloadFromForm();
+  } catch (error) {
+    showError(error.message);
+    return;
+  }
+  opslaanButton.disabled = true;
+  try {
+    const payload = await run("drankjeOpslaan", data);
+    savedId = payload.savedId || null;
+    setEditing(null);
+    applyPayload(payload);
+    if (savedId) {
+      const node = listEl.querySelector(`[data-id="${CSS.escape(savedId)}"]`);
+      if (node) node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  } catch (error) {
+    showError(leesFout(error));
+  } finally {
+    opslaanButton.disabled = false;
+  }
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const naam = naamInput.value.trim();
+  if (naam.length < 2) {
+    showError("Typ minstens twee letters.");
+    return;
+  }
+  showError("");
+  zoekButton.disabled = true;
+  zoekButton.textContent = "Zoeken…";
+  try {
+    const result = await run("zoekDranken", naam);
+    hits = result.treffers || [];
+    gekozenSleutel = "";
+    renderHits();
+    showError(result.fout || "");
+    if (!hits.length) toonDetails(true);
+  } catch (error) {
+    showError(leesFout(error));
+  } finally {
+    zoekButton.disabled = false;
+    zoekButton.textContent = "Zoek op";
+  }
+});
+
+handmatigButton.addEventListener("click", () => {
+  toonDetails(true);
+  showError("");
+  updatePreview();
+  suikerInput.focus();
+});
+
+opslaanButton.addEventListener("click", opslaan);
+
+cancelButton.addEventListener("click", () => {
+  setEditing(null);
+  showError("");
+});
+
+[naamInput, suikerInput, kcalInput, ingredientenInput].forEach((input) => {
+  input.addEventListener("input", updatePreview);
+});
+
+refreshButton.addEventListener("click", load);
+load();
+</script>
