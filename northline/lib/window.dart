@@ -72,9 +72,8 @@ class WindowFrame extends StatelessWidget {
     Widget handle(WindowEdge edge, MouseCursor cursor) {
       return MouseRegion(
         cursor: cursor,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanUpdate: (details) => session.resize(window, edge, details.delta, desktop),
+        child: _EdgeDrag(
+          onDrag: (delta) => session.resize(window, edge, delta, desktop),
         ),
       );
     }
@@ -117,16 +116,10 @@ class _TitleBar extends StatelessWidget {
             AppGlyph(window.kind, size: 16),
             const SizedBox(width: 8),
             Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => session.focus(window),
-                onDoubleTap: () => session.toggleMax(window),
-                onPanUpdate: window.maximized
-                    ? null
-                    : (details) {
-                        session.focus(window);
-                        session.moveBy(window, details.delta, desktop);
-                      },
+              child: _TitleDrag(
+                session: session,
+                window: window,
+                desktop: desktop,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -161,6 +154,89 @@ class _TitleBar extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TitleDrag extends StatefulWidget {
+  const _TitleDrag({
+    required this.session,
+    required this.window,
+    required this.desktop,
+    required this.child,
+  });
+
+  final Session session;
+  final DeskWindow window;
+  final Size desktop;
+  final Widget child;
+
+  @override
+  State<_TitleDrag> createState() => _TitleDragState();
+}
+
+class _TitleDragState extends State<_TitleDrag> {
+  Offset? _point;
+  DateTime? _lastTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) {
+        widget.session.focus(widget.window);
+        _point = event.position;
+        final now = DateTime.now();
+        final previous = _lastTap;
+        if (previous != null && now.difference(previous) < const Duration(milliseconds: 400)) {
+          widget.session.toggleMax(widget.window);
+          _lastTap = null;
+        } else {
+          _lastTap = now;
+        }
+      },
+      onPointerMove: (event) {
+        final point = _point;
+        if (point == null || widget.window.maximized) return;
+        final delta = event.position - point;
+        if (delta.distance < 1) return;
+        _point = event.position;
+        widget.session.moveBy(widget.window, delta, widget.desktop);
+      },
+      onPointerUp: (_) => _point = null,
+      onPointerCancel: (_) => _point = null,
+      child: widget.child,
+    );
+  }
+}
+
+class _EdgeDrag extends StatefulWidget {
+  const _EdgeDrag({required this.onDrag});
+
+  final ValueChanged<Offset> onDrag;
+
+  @override
+  State<_EdgeDrag> createState() => _EdgeDragState();
+}
+
+class _EdgeDragState extends State<_EdgeDrag> {
+  Offset? _point;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) => _point = event.position,
+      onPointerMove: (event) {
+        final point = _point;
+        if (point == null) return;
+        final delta = event.position - point;
+        _point = event.position;
+        widget.onDrag(delta);
+      },
+      onPointerUp: (_) => _point = null,
+      onPointerCancel: (_) => _point = null,
+      child: const SizedBox.expand(),
     );
   }
 }
