@@ -1,0 +1,12 @@
+{
+    "name": "Northline",
+    "short_name": "Northline",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#143044",
+    "theme_color": "#143044",
+    "description": "Northline prop desktop",
+    "orientation": "any",
+    "prefer_related_applications": false,
+    "icons": []
+}
