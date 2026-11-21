@@ -39,6 +39,14 @@ Een keer per jaar is de SD-kaart in de Mac het eenvoudigst. Zet de Pi uit, steek
 
 De bestanden: [pi-speler/audio](https://github.com/GertjanDB/freelss/tree/cursor/pi-fragmenten-ab-50f6/pi-speler/audio).
 
+Een schoon systeem, dat de kaart wist:
+
+```bash
+pi-speler/sd/nieuw-systeem.sh
+```
+
+Dat schrijft Raspberry Pi OS Lite en daarna de speler. Alleen op de Mac, met de kaart als `boot` of `bootfs`.
+
 `zet-klaar.sh` zet een bestaande Raspberry Pi OS-kaart klaar zonder hem te wissen. Alleen de boot-schijf:
 
 ```bash
