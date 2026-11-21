@@ -6,6 +6,7 @@ terwijl hij al loopt, en doen het weer om 08:00. Een start in die uren,
 bijvoorbeeld na stroomherstel, blijft gewoon aan.
 
 Echt uitzetten doet de Pi niet. Een uitgezet board start zichzelf om 08:00 niet.
+Elke maandag om 08:00 herstart hij één keer, als hij dan al loopt.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ class NightIdle:
 
 
 class MorningReset:
-    """Eén herstart als de lopende klok 08:00 passeert. Niet na een stroomherstel."""
+    """Eén herstart als de lopende klok maandag 08:00 passeert."""
 
     def __init__(self, path: Path, now=None) -> None:
         self.path = Path(path)
@@ -88,6 +89,7 @@ class MorningReset:
             and previous.date() == local.date()
             and previous.hour < QUIET_END_HOUR
             and local.hour >= QUIET_END_HOUR
+            and local.weekday() == 0
         )
         if crossed:
             self._due = local.date().isoformat()
@@ -119,6 +121,6 @@ class MorningReset:
             temporary.write_text(day + "\n", encoding="utf-8")
             temporary.replace(self.path)
         except OSError as exc:
-            log.warning("ochtendreset niet bewaard: %s", exc)
+            log.warning("weekreset niet bewaard: %s", exc)
             return False
         return True

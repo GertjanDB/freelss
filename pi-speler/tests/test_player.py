@@ -235,7 +235,7 @@ class NightTests(unittest.TestCase):
         self.assertFalse(route.guide)
 
     def test_morning_reset_runs_once_as_the_clock_passes_eight(self) -> None:
-        start = datetime(2026, 1, 16, 6, 50, tzinfo=timezone.utc)
+        start = datetime(2026, 1, 19, 6, 50, tzinfo=timezone.utc)
         moment = {"at": start}
         with tempfile.TemporaryDirectory() as tmp:
             reset = MorningReset(Path(tmp) / "ochtend", now=lambda: moment["at"])
@@ -245,6 +245,12 @@ class NightTests(unittest.TestCase):
             self.assertTrue(reset.commit())
             moment["at"] = start + timedelta(minutes=12)
             self.assertFalse(reset.tick())
+            friday = datetime(2026, 1, 16, 6, 50, tzinfo=timezone.utc)
+            moment["at"] = friday
+            other = MorningReset(Path(tmp) / "vrijdag", now=lambda: moment["at"])
+            self.assertFalse(other.tick())
+            moment["at"] = friday + timedelta(minutes=11)
+            self.assertFalse(other.tick())
 
     def test_boot_or_power_gap_does_not_reset(self) -> None:
         moment = {"at": datetime(2026, 1, 16, 7, 30, tzinfo=timezone.utc)}

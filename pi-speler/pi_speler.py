@@ -404,7 +404,7 @@ def serve_bench(player: Player) -> None:
 
 
 def reboot_pi() -> bool:
-    log.info("ochtendreset")
+    log.info("weekreset")
     try:
         result = subprocess.run(
             ["systemctl", "reboot"],
@@ -414,11 +414,11 @@ def reboot_pi() -> bool:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        log.warning("ochtendreset mislukt: %s", exc)
+        log.warning("weekreset mislukt: %s", exc)
         return False
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        log.warning("ochtendreset mislukt: %s", detail or result.returncode)
+        log.warning("weekreset mislukt: %s", detail or result.returncode)
         return False
     return True
 
