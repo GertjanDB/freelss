@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -29,6 +30,39 @@ def aplay_command(device: str, path: Path) -> list[str]:
     return ["aplay", "-D", device, os.fspath(path)]
 
 
+_CARD_LINE = re.compile(
+    r"^card \d+: (\S+) \[(.*?)\], device (\d+):",
+    re.MULTILINE,
+)
+
+
+def choose_output_device(listing: str, jack: str) -> str:
+    """USB-versterker als die eraan hangt, anders de 3,5 mm-jack.
+
+    HDMI-kaarten worden overgeslagen. Zonder USB-kaart blijft de jack.
+    """
+
+    usb: list[str] = []
+    other: list[str] = []
+    for match in _CARD_LINE.finditer(listing):
+        card, description, device = match.group(1), match.group(2), match.group(3)
+        label = f"{card} {description}".lower()
+        if "headphone" in label:
+            continue
+        if "hdmi" in label or card.lower().startswith("vc4hdmi"):
+            continue
+        target = f"plughw:CARD={card},DEV={device}"
+        if "usb" in label or "up2stream" in label:
+            usb.append(target)
+        else:
+            other.append(target)
+    if usb:
+        return usb[0]
+    if other:
+        return other[0]
+    return jack
+
+
 def valid_wav(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
@@ -39,12 +73,37 @@ def valid_wav(path: Path) -> bool:
 
 
 class AplayBackend:
-    """Stroomt één bestand naar een vast ALSA-apparaat. Stop = proces dood."""
+    """Stroomt één bestand naar één ALSA-apparaat. Stop = proces dood.
 
-    def __init__(self, device: str) -> None:
+    Met follow_cards kijkt elke druk of de USB-versterker eraan hangt.
+    """
+
+    def __init__(self, device: str, *, follow_cards: bool = False) -> None:
         self.device = device
+        self.follow_cards = follow_cards
+        self._active = device
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
+
+    def output_device(self) -> str:
+        if not self.follow_cards:
+            return self.device
+        try:
+            listed = subprocess.run(
+                ["aplay", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            log.warning("aplay -l: %s", exc)
+            return self.device
+        chosen = choose_output_device(listed.stdout, self.device)
+        if chosen != self._active:
+            log.info("uitgang %s", chosen)
+            self._active = chosen
+        return chosen
 
     def stop(self) -> None:
         with self._lock:
@@ -64,7 +123,7 @@ class AplayBackend:
         self.stop()
         try:
             proc = subprocess.Popen(
-                aplay_command(self.device, path),
+                aplay_command(self.output_device(), path),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,

@@ -33,6 +33,8 @@ Elke knop is een momentdrukker. Eén pootje naar de pin, het andere naar massa. 
 
 De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de USB-C-voeding, tussen die voeding en de HDMI-poorten. Voeding: USB-C, 5 V, 3 A.
 
+Hangt de Audiophony met een USB-datakabel aan de Pi, dan gaat de volgende druk daarheen. Zonder die kabel blijft het de jack. HDMI niet.
+
 ## Fragmenten vervangen
 
 Een keer per jaar is de SD-kaart in de Mac het eenvoudigst. Zet de Pi uit, steek de kaart in de Mac en open de schijf `bootfs`. Vervang een bestand in de map `audio`. Zelfde naam. Laat `config.txt` met rust. Werp uit, kaart terug, Pi aan.

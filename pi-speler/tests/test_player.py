@@ -18,7 +18,13 @@ sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
 from mapping import BUTTONS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
-from playback import AplayBackend, Playback, aplay_command, valid_wav
+from playback import (
+    AplayBackend,
+    Playback,
+    aplay_command,
+    choose_output_device,
+    valid_wav,
+)
 
 # Onafhankelijk van mapping.py, zodat een verschoven pin de test laat falen.
 SPEC = [
@@ -342,6 +348,24 @@ class AplayCommandTests(unittest.TestCase):
         self.assertTrue(procs[0].cmd[-1].endswith("1.wav"))
         self.assertTrue(procs[1].cmd[-1].endswith("2.wav"))
         self.assertEqual(procs[1].cmd[2], "plughw:CARD=Headphones,DEV=0")
+
+    def test_usb_amp_wins_and_jack_returns_when_it_is_gone(self) -> None:
+        listing = """
+**** List of PLAYBACK Hardware Devices ****
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+card 1: vc4hdmi0 [vc4-hdmi-0], device 0: MAI PCM i2s-hifi-0 [MAI PCM i2s-hifi-0]
+card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
+"""
+        jack = "plughw:CARD=Headphones,DEV=0"
+        self.assertEqual(
+            choose_output_device(listing, jack),
+            "plughw:CARD=Audio,DEV=0",
+        )
+        self.assertEqual(
+            choose_output_device(listing.split("card 2:")[0], jack),
+            jack,
+        )
+        self.assertNotIn("hdmi", choose_output_device(listing, jack).lower())
 
 
 class InstallFileTests(unittest.TestCase):

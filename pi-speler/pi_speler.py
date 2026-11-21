@@ -301,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     bench = bench_enabled(args)
     library = AudioLibrary(APP_DIR, USB_MOUNT)
     device = playback_device(bench)
-    player = Player(library, Playback(AplayBackend(device)))
+    player = Player(library, Playback(AplayBackend(device, follow_cards=not bench)))
     install_signals(player)
     try:
         if bench:
