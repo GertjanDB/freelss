@@ -31,6 +31,9 @@ APLAY_DEVICE = "plughw:CARD=Headphones,DEV=0"
 # usb of jack. De geheime config-pin draait dit om. Blijft staan na een herstart.
 STATE_PATH = Path("/var/lib/pi-speler/standaard")
 
+# Datum van de laatste ochtendreset. Voorkomt een tweede herstart na 08:00.
+MORNING_STAMP = Path("/var/lib/pi-speler/ochtend")
+
 
 def force_analog_command() -> list[str]:
     """Commando dat de standaarduitgang van PipeWire op de jack zet.
