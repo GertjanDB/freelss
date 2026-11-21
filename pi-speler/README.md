@@ -46,7 +46,7 @@ De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de U
 
 Standaard gaat een fragment naar de Audiophony als die met een USB-datakabel aan de Pi hangt, en anders naar de jack. Gids zet het op de andere uitgang. Nog een keer gids: terug naar de standaard. Speelt er iets, dan begint dat fragment opnieuw op de nieuwe uitgang. HDMI niet. De 12 V van de versterker blijft apart.
 
-Van 23:00 tot 08:00, klok van Brussel, negeren de fragmentknoppen en gids een druk. Om 08:00 doen ze het weer. Elke maandag om 08:00 herstart de Pi één keer. Komt de stroom terug, dan start hij meteen. Alleen als dat op maandag vóór 08:00 is, herstart hij om 08:00 nog een keer. Stop en de config-pin doen het ook 's nachts.
+Van 23:00 tot 08:00, klok van Brussel, negeren de fragmentknoppen en gids een druk. Om 08:00 doen ze het weer. De Pi blijft aan en herstart niet op een klok. Komt de stroom terug, dan start hij en blijft hij aan. Stop en de config-pin doen het ook 's nachts. Stopt de speler met een fout, dan start de service hem opnieuw.
 
 ## Fragmenten vervangen
 

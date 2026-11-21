@@ -21,13 +21,12 @@ from pathlib import Path
 from config import (
     APLAY_DEVICE,
     BUTTON_KWARGS,
-    MORNING_STAMP,
     STATE_PATH,
     USB_MOUNT,
     force_analog_command,
     volume_command,
 )
-from hours import MorningReset, NightIdle
+from hours import NightIdle
 from mapping import BUTTONS, CONTROLS, AudioLibrary, ButtonSpec, ControlSpec, parse_bench_line
 from playback import AplayBackend, OutputRoute, Playback
 
@@ -72,13 +71,11 @@ class Player:
         playback: Playback,
         route: OutputRoute,
         night: NightIdle | None = None,
-        morning: MorningReset | None = None,
     ) -> None:
         self._library = library
         self._playback = playback
         self._route = route
         self._night = night or NightIdle()
-        self._morning = morning or MorningReset(MORNING_STAMP)
 
     def night_tick(self) -> None:
         try:
@@ -94,19 +91,6 @@ class Player:
                 log.exception("stoppen voor de nacht mislukt")
         elif change == "dag":
             log.info("dag, knoppen aan")
-
-    def morning_due(self) -> bool:
-        try:
-            return self._morning.tick()
-        except Exception:
-            log.exception("ochtendklok faalde")
-            return False
-
-    def morning_clear(self) -> None:
-        self._morning.clear()
-
-    def morning_commit(self) -> bool:
-        return self._morning.commit()
 
     def _quiet(self) -> bool:
         self.night_tick()
@@ -403,34 +387,9 @@ def serve_bench(player: Player) -> None:
             player.press_button(action)
 
 
-def reboot_pi() -> bool:
-    log.info("weekreset")
-    try:
-        result = subprocess.run(
-            ["systemctl", "reboot"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        log.warning("weekreset mislukt: %s", exc)
-        return False
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        log.warning("weekreset mislukt: %s", detail or result.returncode)
-        return False
-    return True
-
-
-def watch_night(player: Player, done: threading.Event, bench: bool) -> None:
+def watch_night(player: Player, done: threading.Event) -> None:
     while not done.wait(20):
         player.night_tick()
-        if bench or not player.morning_due():
-            continue
-        if player.morning_commit() and reboot_pi():
-            continue
-        player.morning_clear()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -450,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     done = threading.Event()
     watcher = threading.Thread(
         target=watch_night,
-        args=(player, done, bench),
+        args=(player, done),
         name="nacht",
         daemon=True,
     )
