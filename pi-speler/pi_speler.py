@@ -14,6 +14,7 @@ import pwd
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from config import (
     force_analog_command,
     volume_command,
 )
+from hours import NightIdle
 from mapping import BUTTONS, CONTROLS, AudioLibrary, ButtonSpec, ControlSpec, parse_bench_line
 from playback import AplayBackend, OutputRoute, Playback
 
@@ -63,13 +65,42 @@ def playback_device(bench: bool) -> str:
 
 
 class Player:
-    def __init__(self, library: AudioLibrary, playback: Playback, route: OutputRoute) -> None:
+    def __init__(
+        self,
+        library: AudioLibrary,
+        playback: Playback,
+        route: OutputRoute,
+        night: NightIdle | None = None,
+    ) -> None:
         self._library = library
         self._playback = playback
         self._route = route
+        self._night = night or NightIdle()
+
+    def night_tick(self) -> None:
+        try:
+            change = self._night.tick()
+        except Exception:
+            log.exception("klok faalde; de speler blijft lopen")
+            return
+        if change == "nacht":
+            log.info("nacht tot 08:00, knoppen stil")
+            try:
+                self._playback.stop()
+            except Exception:
+                log.exception("stoppen voor de nacht mislukt")
+        elif change == "dag":
+            log.info("dag, knoppen aan")
+
+    def _quiet(self) -> bool:
+        self.night_tick()
+        return self._night.silent
 
     def press_button(self, spec: ButtonSpec) -> None:
         try:
+            if self._quiet():
+                log.info("nacht, knop %s %s genegeerd", spec.version, spec.language)
+                return
             path = self._library.wav_for(spec)
             log.info(
                 "knop %s %s bcm=%s pin=%s -> %s",
@@ -96,6 +127,9 @@ class Player:
 
     def guide(self) -> None:
         try:
+            if self._quiet():
+                log.info("nacht, gids genegeerd")
+                return
             via = self._route.toggle_guide()
             log.info("gids %s", via)
             self._playback.replay_if_playing()
@@ -353,6 +387,11 @@ def serve_bench(player: Player) -> None:
             player.press_button(action)
 
 
+def watch_night(player: Player, done: threading.Event) -> None:
+    while not done.wait(20):
+        player.night_tick()
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = list(sys.argv[1:] if argv is None else argv)
@@ -367,6 +406,14 @@ def main(argv: list[str] | None = None) -> int:
         route,
     )
     install_signals(player)
+    done = threading.Event()
+    watcher = threading.Thread(
+        target=watch_night,
+        args=(player, done),
+        name="nacht",
+        daemon=True,
+    )
+    watcher.start()
     try:
         if bench:
             log.info("bench aan, apparaat %s", device)
@@ -378,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
                 log.exception("audio-voorbereiding mislukt; knoppen gaan toch aan")
             serve_gpio(player)
     finally:
+        done.set()
         player.close()
     return 0
 
