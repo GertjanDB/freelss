@@ -1,6 +1,6 @@
 # Pi-speler
 
-Zes momentknoppen op een Raspberry Pi 4B. A en B, elk in het Nederlands, Frans en Engels. Elke knop speelt één fragment op de 3,5 mm-uitgang. Een nieuwe druk stopt wat er speelt en begint dat bestand vooraan. Niets herhaalt vanzelf.
+Acht momentknoppen op een Raspberry Pi 4B, plus een config-pin zonder draad. Zes knoppen spelen A en B, elk in het Nederlands, Frans en Engels. Gids zet het geluid op de andere uitgang. Stop kapt het fragment af. Een nieuwe fragmentknop stopt wat er speelt en begint dat bestand vooraan. Niets herhaalt vanzelf.
 
 ```
 audio/a-nederlands.wav    zegt: A. Nederlands.
@@ -29,11 +29,22 @@ De binnenste rij, naar het midden van de print, zijn de oneven nummers. Tel daar
 
 Massa voor B is pin 34: op de buitenste rij, recht naast pin 33.
 
-Elke knop is een momentdrukker. Eén pootje naar de pin, het andere naar massa. Geen weerstand, geen pluspool. De pootjes van A mogen samen op pin 9. De pootjes van B mogen samen op pin 34.
+De buitenste rij zijn de even nummers. Tel die vanaf pin 2, naast het vierkant.
+
+| Tel | Pin | Draad |
+| --- | --- | --- |
+| 8e | 16 | Gids |
+| 9e | 18 | Stop |
+| 10e | 20 | massa voor gids en stop |
+| 11e | 22 | config, geen draad |
+
+Elke knop is een momentdrukker. Eén pootje naar de pin, het andere naar massa. Geen weerstand, geen pluspool. De pootjes van A mogen samen op pin 9. De pootjes van B mogen samen op pin 34. Gids en stop samen op pin 20.
+
+Pin 22 krijgt geen vaste draad. Even pin 22 tegen pin 20 wisselt welke uitgang de standaard is: USB of de jack. Die keuze blijft na een herstart. Niet vast laten zitten.
 
 De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de USB-C-voeding, tussen die voeding en de HDMI-poorten. Voeding: USB-C, 5 V, 3 A.
 
-Hangt de Audiophony met een USB-datakabel aan de Pi, dan gaat de volgende druk daarheen. Zonder die kabel blijft het de jack. HDMI niet.
+Standaard gaat een fragment naar de Audiophony als die met een USB-datakabel aan de Pi hangt, en anders naar de jack. Gids zet het op de andere uitgang. Nog een keer gids: terug naar de standaard. Speelt er iets, dan begint dat fragment opnieuw op de nieuwe uitgang. HDMI niet. De 12 V van de versterker blijft apart.
 
 ## Fragmenten vervangen
 
@@ -69,7 +80,7 @@ pi-speler/sd/zet-klaar.sh --boot /mnt/boot --root /mnt/root
 PI_SPELER_BENCH=1 python3 pi_speler.py
 ```
 
-Typ `a nl`, `b frans`, `a-engels`, `stop` of `quit`.
+Typ `a nl`, `b frans`, `a-engels`, `gids`, `stop`, `config` of `quit`.
 
 ```bash
 python3 -m unittest discover -s tests -v

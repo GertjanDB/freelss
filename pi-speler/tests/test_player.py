@@ -17,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
-from mapping import BUTTONS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
+from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
+    OutputRoute,
     Playback,
     aplay_command,
     choose_output_device,
@@ -110,6 +111,8 @@ class MapTests(unittest.TestCase):
         self.assertEqual((english.version, english.language, english.bcm), ("a", "en", 22))
         self.assertEqual(parse_bench_line("quit"), "quit")
         self.assertEqual(parse_bench_line("stop"), "stop")
+        self.assertEqual(parse_bench_line("gids"), "gids")
+        self.assertEqual(parse_bench_line("config"), "config")
         self.assertIsNone(parse_bench_line("c nl"))
         self.assertIsNone(parse_bench_line("nl 1"))
         self.assertIsNone(parse_bench_line(""))
@@ -146,6 +149,23 @@ class MapTests(unittest.TestCase):
                 resolve_wav(by_name["b-engels.wav"], dirs),
                 local / "b-engels.wav",
             )
+
+    def test_guide_stop_and_unwired_config_pins(self) -> None:
+        self.assertEqual(
+            [(item.action, item.bcm, item.header_pin, item.wired) for item in CONTROLS],
+            [
+                ("gids", 23, 16, True),
+                ("stop", 24, 18, True),
+                ("config", 25, 22, False),
+            ],
+        )
+        pins = [item.header_pin for item in BUTTONS] + [item.header_pin for item in CONTROLS]
+        bcms = [item.bcm for item in BUTTONS] + [item.bcm for item in CONTROLS]
+        self.assertEqual(len(pins), 9)
+        self.assertEqual(len(set(pins)), 9)
+        self.assertEqual(len(set(bcms)), 9)
+        for pin in pins:
+            self.assertNotIn(pin, POWER_OR_GND)
 
 
 class ClipTests(unittest.TestCase):
@@ -367,6 +387,58 @@ card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
         )
         self.assertNotIn("hdmi", choose_output_device(listing, jack).lower())
 
+    def test_guide_flips_the_route_and_config_stores_the_default(self) -> None:
+        listing = """
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
+"""
+        jack = APLAY_DEVICE
+        usb = "plughw:CARD=Audio,DEV=0"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "standaard"
+            route = OutputRoute(path, jack)
+            self.assertEqual(route.preference, "usb")
+            self.assertEqual(route.device_for(listing), usb)
+            self.assertEqual(route.toggle_guide(), "jack")
+            self.assertEqual(route.device_for(listing), jack)
+            self.assertEqual(route.toggle_guide(), "usb")
+            route.toggle_guide()
+            self.assertEqual(route.toggle_default(), "jack")
+            self.assertFalse(route.guide)
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "jack")
+            self.assertEqual(route.device_for(listing), jack)
+            kept = OutputRoute(path, jack)
+            self.assertEqual(kept.preference, "jack")
+            self.assertEqual(kept.toggle_guide(), "usb")
+            self.assertEqual(kept.device_for(listing), usb)
+            self.assertEqual(kept.device_for("card 0: Headphones [bcm2835 Headphones], device 0: x"), jack)
+
+    def test_guide_restarts_the_clip_on_the_other_output(self) -> None:
+        listing = """
+card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]
+card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
+"""
+        jack = APLAY_DEVICE
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), jack)
+        backend = AplayBackend(jack, follow_cards=True, route=route)
+        self.addCleanup(backend.stop)
+        listed = unittest.mock.Mock(stdout=listing, stderr="", returncode=0)
+        FakeProc.spawned = []
+        with (
+            unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+            unittest.mock.patch("playback.subprocess.run", return_value=listed),
+        ):
+            backend.play(Path("audio/a-nederlands.wav"))
+            route.toggle_guide()
+            backend.replay_if_playing()
+            backend.stop()
+            backend.replay_if_playing()
+        procs = FakeProc.spawned
+        self.assertEqual(procs[0].cmd[2], "plughw:CARD=Audio,DEV=0")
+        self.assertEqual(procs[1].cmd[2], jack)
+        self.assertTrue(procs[1].cmd[-1].endswith("a-nederlands.wav"))
+        self.assertEqual(len(procs), 2)
+
 
 class InstallFileTests(unittest.TestCase):
     def test_service_starts_after_sound_and_restarts(self) -> None:
@@ -380,6 +452,7 @@ class InstallFileTests(unittest.TestCase):
         self.assertIn("alsa-utils", install)
         self.assertIn("pulseaudio-utils", install)
         self.assertIn("systemctl enable", install)
+        self.assertIn("/var/lib/pi-speler", install)
         self.assertNotIn("apt-get remove", install)
         self.assertNotIn("config.txt", install)
         self.assertNotIn("RPi.GPIO", install)

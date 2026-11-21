@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Zes knoppen: A en B, elk in het Nederlands, Frans en Engels.
+"""Zes fragmentknoppen: A en B, elk in het Nederlands, Frans en Engels.
+
+Daarnaast gids, stop en een config-pin. Config wordt niet bekabeld.
 
 Een druk leest het bestand op dat moment. Een nieuwer bestand op de
 USB-stick wint van de map audio op de SD-kaart, en die wint van de
@@ -77,6 +79,23 @@ BUTTONS: tuple[ButtonSpec, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class ControlSpec:
+    action: str
+    bcm: int
+    header_pin: int
+    wired: bool
+
+
+# Buitenste rij, naast de A-knoppen. Massa voor gids en stop is pin 20.
+# Pin 22 luistert mee maar krijgt geen draad.
+CONTROLS: tuple[ControlSpec, ...] = (
+    ControlSpec("gids", 23, 16, True),
+    ControlSpec("stop", 24, 18, True),
+    ControlSpec("config", 25, 22, False),
+)
+
+
 def find_button(version: str, language: str) -> ButtonSpec | None:
     version = version.lower()
     language = language.lower()
@@ -114,6 +133,10 @@ def parse_bench_line(line: str) -> ButtonSpec | str | None:
         return "quit"
     if text == "stop":
         return "stop"
+    if text in {"gids", "guide"}:
+        return "gids"
+    if text in {"config", "geheim"}:
+        return "config"
     parts = _fold(text).split()
     if len(parts) == 1:
         match = re.fullmatch(r"([ab])(nl|fr|en|nederlands|frans|francais|engels|english)", parts[0])

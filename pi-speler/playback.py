@@ -63,6 +63,56 @@ def choose_output_device(listing: str, jack: str) -> str:
     return jack
 
 
+class OutputRoute:
+    """Standaard is usb of jack. Gids gebruikt de andere tot de volgende gidsdruk.
+
+    De standaard staat in een bestand en blijft na een herstart. Gids niet.
+    """
+
+    def __init__(self, path: Path, jack: str) -> None:
+        self.path = Path(path)
+        self.jack = jack
+        self.preference = "usb"
+        self.guide = False
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            text = self.path.read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            return
+        if text in {"usb", "jack"}:
+            self.preference = text
+
+    def _save(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_name(self.path.name + ".tmp")
+            temporary.write_text(self.preference + "\n", encoding="utf-8")
+            temporary.replace(self.path)
+        except OSError as exc:
+            log.warning("standaard niet bewaard: %s", exc)
+
+    def uses_usb(self) -> bool:
+        return (self.preference == "usb") != self.guide
+
+    def device_for(self, listing: str) -> str:
+        usb = choose_output_device(listing, "")
+        if self.uses_usb() and usb:
+            return usb
+        return self.jack
+
+    def toggle_guide(self) -> str:
+        self.guide = not self.guide
+        return "usb" if self.uses_usb() else "jack"
+
+    def toggle_default(self) -> str:
+        self.preference = "jack" if self.preference == "usb" else "usb"
+        self.guide = False
+        self._save()
+        return self.preference
+
+
 def valid_wav(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
@@ -78,10 +128,19 @@ class AplayBackend:
     Met follow_cards kijkt elke druk of de USB-versterker eraan hangt.
     """
 
-    def __init__(self, device: str, *, follow_cards: bool = False) -> None:
+    def __init__(
+        self,
+        device: str,
+        *,
+        follow_cards: bool = False,
+        route: OutputRoute | None = None,
+    ) -> None:
         self.device = device
         self.follow_cards = follow_cards
+        self.route = route
         self._active = device
+        self._reported_missing = False
+        self._path: Path | None = None
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
 
@@ -99,7 +158,14 @@ class AplayBackend:
         except (OSError, subprocess.TimeoutExpired) as exc:
             log.warning("aplay -l: %s", exc)
             return self.device
-        chosen = choose_output_device(listed.stdout, self.device)
+        if self.route is None:
+            chosen = choose_output_device(listed.stdout, self.device)
+        else:
+            chosen = self.route.device_for(listed.stdout)
+            missing = self.route.uses_usb() and chosen == self.route.jack
+            if missing and not self._reported_missing:
+                log.info("usb niet gevonden, jack")
+            self._reported_missing = missing
         if chosen != self._active:
             log.info("uitgang %s", chosen)
             self._active = chosen
@@ -118,8 +184,17 @@ class AplayBackend:
             proc.kill()
             proc.wait(timeout=1.5)
 
+    def replay_if_playing(self) -> None:
+        with self._lock:
+            proc = self._proc
+            path = self._path
+        if path is None or proc is None or proc.poll() is not None:
+            return
+        self.play(path)
+
     def play(self, path: Path) -> None:
         # Ook als de aanroeper het vergeet: nooit twee bestanden tegelijk.
+        self._path = path
         self.stop()
         try:
             proc = subprocess.Popen(
@@ -176,6 +251,15 @@ class Playback:
     def stop(self) -> None:
         with self._lock:
             self._stop_quiet()
+
+    def replay_if_playing(self) -> None:
+        replay = getattr(self._backend, "replay_if_playing", None)
+        if replay is None:
+            return
+        try:
+            replay()
+        except Exception:
+            log.exception("opnieuw afspelen mislukt")
 
     def _stop_quiet(self) -> None:
         try:

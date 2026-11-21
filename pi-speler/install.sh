@@ -37,7 +37,7 @@ if [[ -n "$boot_audio" ]]; then
   done
 fi
 
-"${SUDO[@]}" mkdir -p /mnt/pi-speler
+"${SUDO[@]}" mkdir -p /mnt/pi-speler /var/lib/pi-speler
 if [[ -f /etc/fstab ]] && ! grep -q '/mnt/pi-speler' /etc/fstab; then
   printf '%s\n' 'LABEL=AUDIO  /mnt/pi-speler  auto  defaults,nofail,x-systemd.device-timeout=5,noatime  0  0' \
     | "${SUDO[@]}" tee -a /etc/fstab >/dev/null

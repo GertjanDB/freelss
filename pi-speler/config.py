@@ -7,6 +7,8 @@ Staat een fragment daar, dan wint dat van het bestand op de SD-kaart.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 # Koppelpunt van de USB-stick. De stick bevat audio/a-nederlands.wav enzovoort.
 USB_MOUNT = "/mnt/pi-speler"
 
@@ -25,6 +27,9 @@ ANALOG_SINK = "alsa_output.platform-bcm2835_audio.stereo-fallback"
 
 # ALSA-kaart van diezelfde jack. vc4hdmi0 / vc4hdmi1 zijn de HDMI-poorten.
 APLAY_DEVICE = "plughw:CARD=Headphones,DEV=0"
+
+# usb of jack. De geheime config-pin draait dit om. Blijft staan na een herstart.
+STATE_PATH = Path("/var/lib/pi-speler/standaard")
 
 
 def force_analog_command() -> list[str]:

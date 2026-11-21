@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Pi-speler: knoppen A en B, drie talen, uitgang op de jack.
+"""Pi-speler: knoppen A en B, gids, stop, en een config-pin.
 
 Zonder GPIO (laptop, test):
 
@@ -20,12 +20,13 @@ from pathlib import Path
 from config import (
     APLAY_DEVICE,
     BUTTON_KWARGS,
+    STATE_PATH,
     USB_MOUNT,
     force_analog_command,
     volume_command,
 )
-from mapping import BUTTONS, AudioLibrary, ButtonSpec, parse_bench_line
-from playback import AplayBackend, Playback
+from mapping import BUTTONS, CONTROLS, AudioLibrary, ButtonSpec, ControlSpec, parse_bench_line
+from playback import AplayBackend, OutputRoute, Playback
 
 log = logging.getLogger("pi-speler")
 
@@ -62,9 +63,10 @@ def playback_device(bench: bool) -> str:
 
 
 class Player:
-    def __init__(self, library: AudioLibrary, playback: Playback) -> None:
+    def __init__(self, library: AudioLibrary, playback: Playback, route: OutputRoute) -> None:
         self._library = library
         self._playback = playback
+        self._route = route
 
     def press_button(self, spec: ButtonSpec) -> None:
         try:
@@ -87,12 +89,32 @@ class Player:
 
     def stop(self) -> None:
         try:
+            log.info("stop")
             self._playback.stop()
         except Exception:
             log.exception("stoppen mislukt")
 
+    def guide(self) -> None:
+        try:
+            via = self._route.toggle_guide()
+            log.info("gids %s", via)
+            self._playback.replay_if_playing()
+        except Exception:
+            log.exception("gids faalde; de speler blijft lopen")
+
+    def configure(self) -> None:
+        try:
+            choice = self._route.toggle_default()
+            log.info("standaard %s", choice)
+            self._playback.replay_if_playing()
+        except Exception:
+            log.exception("config faalde; de speler blijft lopen")
+
     def close(self) -> None:
-        self.stop()
+        try:
+            self._playback.stop()
+        except Exception:
+            log.exception("stoppen mislukt")
 
 
 def install_signals(player: Player) -> None:
@@ -260,6 +282,36 @@ def serve_gpio(player: Player) -> None:
 
         button.when_pressed = on_press
         held.append(button)
+    for spec in CONTROLS:
+        try:
+            button = Button(spec.bcm, **BUTTON_KWARGS)
+        except Exception:
+            log.exception(
+                "knop %s bcm=%s pin=%s niet geopend",
+                spec.action,
+                spec.bcm,
+                spec.header_pin,
+            )
+            continue
+
+        def on_control(*_args: object, chosen: ControlSpec = spec) -> None:
+            if chosen.action == "gids":
+                player.guide()
+            elif chosen.action == "stop":
+                player.stop()
+            elif chosen.action == "config":
+                player.configure()
+
+        button.when_pressed = on_control
+        held.append(button)
+        if spec.wired:
+            log.info("knop %s bcm=%s pin=%s", spec.action, spec.bcm, spec.header_pin)
+        else:
+            log.info(
+                "config bcm=%s pin=%s luistert, niet bekabelen",
+                spec.bcm,
+                spec.header_pin,
+            )
     if not held:
         log.error("geen enkele knop kon openen")
         raise SystemExit(1)
@@ -275,7 +327,7 @@ def serve_gpio(player: Player) -> None:
 
 
 def serve_bench(player: Player) -> None:
-    log.info("bench: typ 'a nl', 'b frans', 'a-engels', 'stop' of 'quit'")
+    log.info("bench: typ 'a nl', 'b frans', 'gids', 'stop', 'config' of 'quit'")
     while True:
         try:
             line = input()
@@ -291,6 +343,12 @@ def serve_bench(player: Player) -> None:
         if action == "stop":
             player.stop()
             continue
+        if action == "gids":
+            player.guide()
+            continue
+        if action == "config":
+            player.configure()
+            continue
         if isinstance(action, ButtonSpec):
             player.press_button(action)
 
@@ -301,7 +359,13 @@ def main(argv: list[str] | None = None) -> int:
     bench = bench_enabled(args)
     library = AudioLibrary(APP_DIR, USB_MOUNT)
     device = playback_device(bench)
-    player = Player(library, Playback(AplayBackend(device, follow_cards=not bench)))
+    route = OutputRoute(STATE_PATH, APLAY_DEVICE)
+    log.info("standaard %s", route.preference)
+    player = Player(
+        library,
+        Playback(AplayBackend(device, follow_cards=not bench, route=route)),
+        route,
+    )
     install_signals(player)
     try:
         if bench:

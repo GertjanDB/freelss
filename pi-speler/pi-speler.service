@@ -1,5 +1,5 @@
 [Unit]
-Description=Pi-speler: knoppen A en B naar de koptelefoonuitgang
+Description=Pi-speler: fragmentknoppen, gids en stop
 After=sound.target
 Wants=sound.target
 StartLimitIntervalSec=0
