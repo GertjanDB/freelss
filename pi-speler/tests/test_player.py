@@ -17,29 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
-from mapping import BUTTONS, parse_bench_line, resolve_audio_root
-from playback import AplayBackend, Playback, aplay_command
+from mapping import BUTTONS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
+from playback import AplayBackend, Playback, aplay_command, valid_wav
 
 # Onafhankelijk van mapping.py, zodat een verschoven pin de test laat falen.
 SPEC = [
-    (1, "nl", 17, 11),
-    (1, "fr", 27, 13),
-    (1, "en", 22, 15),
-    (2, "nl", 5, 29),
-    (2, "fr", 6, 31),
-    (2, "en", 13, 33),
-    (3, "nl", 19, 35),
-    (3, "fr", 26, 37),
-    (3, "en", 23, 16),
-    (4, "nl", 24, 18),
-    (4, "fr", 25, 22),
-    (4, "en", 12, 32),
-    (5, "nl", 16, 36),
-    (5, "fr", 20, 38),
-    (5, "en", 21, 40),
-    (6, "nl", 4, 7),
-    (6, "fr", 18, 12),
-    (6, "en", 7, 26),
+    ("a", "nl", 17, 11),
+    ("a", "fr", 27, 13),
+    ("a", "en", 22, 15),
+    ("b", "nl", 5, 29),
+    ("b", "fr", 6, 31),
+    ("b", "en", 13, 33),
 ]
 
 POWER_OR_GND = {1, 2, 4, 6, 9, 14, 17, 20, 25, 30, 34, 39}
@@ -74,29 +62,28 @@ class MapTests(unittest.TestCase):
     def test_button_file_map_matches_spec(self) -> None:
         actual = [(b.version, b.language, b.bcm, b.header_pin) for b in BUTTONS]
         self.assertEqual(actual, SPEC)
-        self.assertEqual(len(BUTTONS), 18)
-        self.assertEqual(len({b.bcm for b in BUTTONS}), 18)
-        self.assertEqual(len({b.header_pin for b in BUTTONS}), 18)
+        self.assertEqual(len(BUTTONS), 6)
+        self.assertEqual(len({b.bcm for b in BUTTONS}), 6)
+        self.assertEqual(len({b.header_pin for b in BUTTONS}), 6)
         for spec in BUTTONS:
             self.assertNotIn(spec.header_pin, POWER_OR_GND)
 
         root = Path("/audio")
         paths = [spec.wav_path(root) for spec in BUTTONS]
-        self.assertEqual(len(set(paths)), 18)
-        self.assertEqual(paths[0], Path("/audio/nl/1.wav"))
-        self.assertEqual(paths[-1], Path("/audio/en/6.wav"))
-        for version in range(1, 7):
-            for language in ("nl", "fr", "en"):
-                match = [
-                    spec
-                    for spec in BUTTONS
-                    if spec.version == version and spec.language == language
-                ]
-                self.assertEqual(len(match), 1)
-                self.assertEqual(
-                    match[0].wav_path(root),
-                    Path("/audio") / language / f"{version}.wav",
-                )
+        self.assertEqual(len(set(paths)), 6)
+        self.assertEqual(paths[0], Path("/audio/a-nederlands.wav"))
+        self.assertEqual(paths[-1], Path("/audio/b-engels.wav"))
+        for version, language, _bcm, _pin in SPEC:
+            match = [
+                spec
+                for spec in BUTTONS
+                if spec.version == version and spec.language == language
+            ]
+            self.assertEqual(len(match), 1)
+            self.assertEqual(
+                match[0].wav_path(root),
+                root / FILE_NAMES[(version, language)],
+            )
 
     def test_buttons_are_active_low_with_pullup_and_40ms_debounce(self) -> None:
         self.assertEqual(BUTTON_KWARGS["pull_up"], True)
@@ -109,34 +96,74 @@ class MapTests(unittest.TestCase):
             self.assertNotIn("RPi.GPIO", (ROOT / name).read_text(encoding="utf-8"))
 
     def test_bench_lines_use_the_same_map(self) -> None:
-        dutch = parse_bench_line("nl 1")
-        self.assertEqual((dutch.version, dutch.language, dutch.bcm), (1, "nl", 17))
-        french = parse_bench_line("FR3")
-        self.assertEqual((french.version, french.language, french.bcm), (3, "fr", 26))
-        english = parse_bench_line("6 en")
-        self.assertEqual((english.version, english.language, english.bcm), (6, "en", 7))
+        dutch = parse_bench_line("a nl")
+        self.assertEqual((dutch.version, dutch.language, dutch.bcm), ("a", "nl", 17))
+        french = parse_bench_line("b frans")
+        self.assertEqual((french.version, french.language, french.bcm), ("b", "fr", 6))
+        english = parse_bench_line("a-engels")
+        self.assertEqual((english.version, english.language, english.bcm), ("a", "en", 22))
         self.assertEqual(parse_bench_line("quit"), "quit")
         self.assertEqual(parse_bench_line("stop"), "stop")
-        self.assertIsNone(parse_bench_line("nl 7"))
+        self.assertIsNone(parse_bench_line("c nl"))
+        self.assertIsNone(parse_bench_line("nl 1"))
         self.assertIsNone(parse_bench_line(""))
 
-    def test_usb_stick_wins_only_when_all_three_languages_exist(self) -> None:
+    def test_usb_beats_sd_card_and_sd_card_beats_local_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             app = base / "app"
-            (app / "audio" / "nl").mkdir(parents=True)
-            usb = base / "stick"
-            for language in ("nl", "fr", "en"):
-                (usb / "audio" / language).mkdir(parents=True)
-            self.assertEqual(
-                resolve_audio_root(app, usb),
-                (usb / "audio").resolve(),
+            local = app / "audio"
+            boot = base / "boot"
+            usb = base / "stick" / "audio"
+            for folder, names in (
+                (local, FILE_NAMES.values()),
+                (boot, ("a-nederlands.wav",)),
+                (usb, ("a-frans.wav",)),
+            ):
+                folder.mkdir(parents=True)
+                for name in names:
+                    write_wav(folder / name)
+
+            dirs = audio_dirs(
+                app,
+                base / "stick",
+                boot_dirs=(boot,),
+                scan_media=False,
             )
-            (usb / "audio" / "en").rmdir()
+            by_name = {spec.filename(): spec for spec in BUTTONS}
+            self.assertEqual(resolve_wav(by_name["a-frans.wav"], dirs), usb / "a-frans.wav")
             self.assertEqual(
-                resolve_audio_root(app, usb),
-                (app / "audio").resolve(),
+                resolve_wav(by_name["a-nederlands.wav"], dirs),
+                boot / "a-nederlands.wav",
             )
+            self.assertEqual(
+                resolve_wav(by_name["b-engels.wav"], dirs),
+                local / "b-engels.wav",
+            )
+
+
+class ClipTests(unittest.TestCase):
+    def test_shipped_clips_are_audible_wavs(self) -> None:
+        import array
+        import math
+
+        for name in FILE_NAMES.values():
+            path = ROOT / "audio" / name
+            self.assertTrue(path.is_file(), name)
+            self.assertTrue(valid_wav(path), name)
+            with wave.open(str(path)) as handle:
+                self.assertEqual(handle.getnchannels(), 1)
+                self.assertEqual(handle.getsampwidth(), 2)
+                frames = handle.getnframes()
+                rate = handle.getframerate()
+                raw = handle.readframes(frames)
+            seconds = frames / rate
+            self.assertGreater(seconds, 0.8, name)
+            self.assertLess(seconds, 5, name)
+            samples = array.array("h")
+            samples.frombytes(raw)
+            rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+            self.assertGreater(rms, 500, name)
 
 
 class PlaybackTests(unittest.TestCase):

@@ -1,54 +1,84 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Achttien knoppen: zes versies, drie talen, één bestand per knop."""
+"""Zes knoppen: A en B, elk in het Nederlands, Frans en Engels.
+
+Een druk leest het bestand op dat moment. Een nieuwer bestand op de
+USB-stick wint van de map audio op de SD-kaart, en die wint van de
+kopie naast dit programma.
+"""
 
 from __future__ import annotations
 
 import logging
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
 log = logging.getLogger("pi-speler")
 
-LANGUAGES = ("nl", "fr", "en")
+# Naam op de SD-kaart en op de stick. Zo zie je in de verkenner welk fragment het is.
+FILE_NAMES = {
+    ("a", "nl"): "a-nederlands.wav",
+    ("a", "fr"): "a-frans.wav",
+    ("a", "en"): "a-engels.wav",
+    ("b", "nl"): "b-nederlands.wav",
+    ("b", "fr"): "b-frans.wav",
+    ("b", "en"): "b-engels.wav",
+}
+
+LANGUAGE_ALIASES = {
+    "nl": "nl",
+    "nederlands": "nl",
+    "fr": "fr",
+    "frans": "fr",
+    "francais": "fr",
+    "en": "en",
+    "engels": "en",
+    "english": "en",
+}
+
+# Bookworm mount de FAT-partitie hier. Oudere images gebruiken /boot.
+BOOT_AUDIO_DIRS = (
+    Path("/boot/firmware/audio"),
+    Path("/boot/audio"),
+)
+
+MEDIA_ROOTS = (
+    Path("/media"),
+    Path("/run/media"),
+)
 
 
 @dataclass(frozen=True)
 class ButtonSpec:
-    version: int
+    version: str
     language: str
     bcm: int
     header_pin: int
 
+    def filename(self) -> str:
+        return FILE_NAMES[(self.version, self.language)]
+
     def wav_path(self, audio_root: Path) -> Path:
-        return audio_root / self.language / f"{self.version}.wav"
+        return Path(audio_root) / self.filename()
 
 
-# BCM-nummer en fysieke headerpin. Volgorde is de afspraak uit de opdracht.
+# BCM-nummer en fysieke headerpin.
+# A zit bij elkaar: pin 11, 13 en 15, massa op pin 9.
+# B zit bij elkaar: pin 29, 31 en 33, massa op pin 34.
 BUTTONS: tuple[ButtonSpec, ...] = (
-    ButtonSpec(1, "nl", 17, 11),
-    ButtonSpec(1, "fr", 27, 13),
-    ButtonSpec(1, "en", 22, 15),
-    ButtonSpec(2, "nl", 5, 29),
-    ButtonSpec(2, "fr", 6, 31),
-    ButtonSpec(2, "en", 13, 33),
-    ButtonSpec(3, "nl", 19, 35),
-    ButtonSpec(3, "fr", 26, 37),
-    ButtonSpec(3, "en", 23, 16),
-    ButtonSpec(4, "nl", 24, 18),
-    ButtonSpec(4, "fr", 25, 22),
-    ButtonSpec(4, "en", 12, 32),
-    ButtonSpec(5, "nl", 16, 36),
-    ButtonSpec(5, "fr", 20, 38),
-    ButtonSpec(5, "en", 21, 40),
-    ButtonSpec(6, "nl", 4, 7),
-    ButtonSpec(6, "fr", 18, 12),
-    ButtonSpec(6, "en", 7, 26),
+    ButtonSpec("a", "nl", 17, 11),
+    ButtonSpec("a", "fr", 27, 13),
+    ButtonSpec("a", "en", 22, 15),
+    ButtonSpec("b", "nl", 5, 29),
+    ButtonSpec("b", "fr", 6, 31),
+    ButtonSpec("b", "en", 13, 33),
 )
 
 
-def find_button(version: int, language: str) -> ButtonSpec | None:
+def find_button(version: str, language: str) -> ButtonSpec | None:
+    version = version.lower()
     language = language.lower()
     for spec in BUTTONS:
         if spec.version == version and spec.language == language:
@@ -56,8 +86,26 @@ def find_button(version: int, language: str) -> ButtonSpec | None:
     return None
 
 
+def _fold(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.strip().lower())
+    without_marks = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return without_marks.replace(".wav", "").replace("_", " ").replace("-", " ")
+
+
+def _language(token: str) -> str | None:
+    return LANGUAGE_ALIASES.get(token)
+
+
+def _pair(left: str, right: str) -> ButtonSpec | None:
+    if left in {"a", "b"} and _language(right):
+        return find_button(left, _language(right) or "")
+    if right in {"a", "b"} and _language(left):
+        return find_button(right, _language(left) or "")
+    return None
+
+
 def parse_bench_line(line: str) -> ButtonSpec | str | None:
-    """Bench-regel: 'nl 1', 'fr3', '6 en', 'stop' of 'quit'."""
+    """Bench-regel: 'a nl', 'b frans', 'a-engels', 'stop' of 'quit'."""
 
     text = line.strip().lower()
     if not text or text.startswith("#"):
@@ -66,24 +114,95 @@ def parse_bench_line(line: str) -> ButtonSpec | str | None:
         return "quit"
     if text == "stop":
         return "stop"
-    compact = re.sub(r"\s+", "", text)
-    match = re.fullmatch(r"(nl|fr|en)([1-6])", compact)
-    if match:
-        return find_button(int(match.group(2)), match.group(1))
-    match = re.fullmatch(r"([1-6])(nl|fr|en)", compact)
-    if match:
-        return find_button(int(match.group(1)), match.group(2))
+    parts = _fold(text).split()
+    if len(parts) == 1:
+        match = re.fullmatch(r"([ab])(nl|fr|en|nederlands|frans|francais|engels|english)", parts[0])
+        if not match:
+            return None
+        return find_button(match.group(1), _language(match.group(2)) or "")
+    if len(parts) == 2:
+        return _pair(parts[0], parts[1])
     return None
 
 
-def resolve_audio_root(app_dir: Path, usb_mount: Path) -> Path:
-    """USB als audio/nl, audio/fr én audio/en daarop staan, anders ./audio."""
+def _has_clip(directory: Path) -> bool:
+    return any((directory / name).is_file() for name in FILE_NAMES.values())
 
-    local = (Path(app_dir) / "audio").resolve()
-    usb_audio = Path(usb_mount) / "audio"
-    if all((usb_audio / language).is_dir() for language in LANGUAGES):
-        return usb_audio.resolve()
-    return local
+
+def _add(ordered: list[Path], seen: set[Path], directory: Path) -> None:
+    try:
+        if not directory.is_dir() or not _has_clip(directory):
+            return
+        resolved = directory.resolve()
+    except OSError:
+        return
+    if resolved in seen:
+        return
+    seen.add(resolved)
+    ordered.append(resolved)
+
+
+def _media_dirs(media_roots: tuple[Path, ...]) -> list[Path]:
+    found: list[Path] = []
+    for root in media_roots:
+        try:
+            if not root.is_dir():
+                continue
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir():
+                continue
+            found.append(child)
+            try:
+                for label in child.iterdir():
+                    if label.is_dir():
+                        found.append(label)
+            except OSError:
+                continue
+    return found
+
+
+def audio_dirs(
+    app_dir: Path,
+    usb_mount: Path,
+    *,
+    boot_dirs: tuple[Path, ...] = BOOT_AUDIO_DIRS,
+    media_roots: tuple[Path, ...] = MEDIA_ROOTS,
+    scan_media: bool = True,
+) -> list[Path]:
+    """USB eerst, dan de map audio op de SD-kaart, dan de map naast het programma."""
+
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    mount = Path(usb_mount)
+    _add(ordered, seen, mount)
+    _add(ordered, seen, mount / "audio")
+    if scan_media:
+        for directory in _media_dirs(media_roots):
+            _add(ordered, seen, directory)
+            _add(ordered, seen, directory / "audio")
+    for boot in boot_dirs:
+        _add(ordered, seen, Path(boot))
+    local = Path(app_dir) / "audio"
+    _add(ordered, seen, local)
+    try:
+        local_resolved = local.resolve()
+    except OSError:
+        local_resolved = local
+    if local_resolved not in seen:
+        ordered.append(local_resolved)
+    return ordered
+
+
+def resolve_wav(spec: ButtonSpec, directories: list[Path]) -> Path:
+    name = spec.filename()
+    for directory in directories:
+        path = directory / name
+        if path.is_file():
+            return path
+    return directories[-1] / name
 
 
 class AudioLibrary:
@@ -95,10 +214,11 @@ class AudioLibrary:
         self._active: Path | None = None
         self._lock = threading.Lock()
 
-    def root(self) -> Path:
-        chosen = resolve_audio_root(self.app_dir, self.usb_mount)
+    def wav_for(self, spec: ButtonSpec) -> Path:
+        directories = audio_dirs(self.app_dir, self.usb_mount)
+        path = resolve_wav(spec, directories)
         with self._lock:
-            if chosen != self._active:
-                log.info("audiomap %s", chosen)
-                self._active = chosen
-        return chosen
+            if path.parent != self._active:
+                log.info("audiomap %s", path.parent)
+                self._active = path.parent
+        return path

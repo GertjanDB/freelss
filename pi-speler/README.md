@@ -1,84 +1,70 @@
 # Pi-speler
 
-Achttien momentknoppen op een Raspberry Pi 4B. Elke knop speelt één WAV op de 3,5 mm-koptelefoonuitgang. Zes versies, drie talen (Nederlands, Frans, Engels). Een nieuwe druk stopt wat er speelt en begint dat bestand vooraan. Geen lus, geen lampjes, vast volume.
-
-Zelfde nummer = dezelfde inhoud:
+Zes momentknoppen op een Raspberry Pi 4B. A en B, elk in het Nederlands, Frans en Engels. Elke knop speelt één fragment op de 3,5 mm-uitgang. Een nieuwe druk stopt wat er speelt en begint dat bestand vooraan. Niets herhaalt vanzelf.
 
 ```
-audio/nl/1.wav   audio/fr/1.wav   audio/en/1.wav
-… tot en met 6.wav
+audio/a-nederlands.wav    zegt: A. Nederlands.
+audio/a-frans.wav         zegt: A. Français.
+audio/a-engels.wav        zegt: A. English.
+audio/b-nederlands.wav    zegt: B. Nederlands.
+audio/b-frans.wav         zegt: B. Français.
+audio/b-engels.wav        zegt: B. English.
 ```
 
 ## Aansluiten
 
-Knop tussen de GPIO-pin en GND. Interne pull-up, actief laag. GND mag gedeeld: headerpinnen 6, 9, 14, 20, 25, 30, 34 of 39. Laat pin 1, 2, 4 en 17 leeg (voeding). Laat SPI uit: pin 26 is een knop.
+De Pi staat uit. Pin 1 is het vierkante soldeervlak, aan het uiteinde van de header dat het dichtst bij de USB-C-voeding zit. Dat pinnetje is 3,3 V. Pin 2 en 4, ernaast op de buitenrand, zijn 5 V. Daar komt geen draad aan.
 
-| Versie | Taal | BCM | Pin |
-| --- | --- | --- | --- |
-| 1 | NL | 17 | 11 |
-| 1 | FR | 27 | 13 |
-| 1 | EN | 22 | 15 |
-| 2 | NL | 5 | 29 |
-| 2 | FR | 6 | 31 |
-| 2 | EN | 13 | 33 |
-| 3 | NL | 19 | 35 |
-| 3 | FR | 26 | 37 |
-| 3 | EN | 23 | 16 |
-| 4 | NL | 24 | 18 |
-| 4 | FR | 25 | 22 |
-| 4 | EN | 12 | 32 |
-| 5 | NL | 16 | 36 |
-| 5 | FR | 20 | 38 |
-| 5 | EN | 21 | 40 |
-| 6 | NL | 4 | 7 |
-| 6 | FR | 18 | 12 |
-| 6 | EN | 7 | 26 |
+De binnenste rij, naar het midden van de print, zijn de oneven nummers. Tel daarin vanaf het vierkant.
 
-Luidspreker of bestaande doos in de analoge 3,5 mm-jack.
+| Tel | Pin | Draad |
+| --- | --- | --- |
+| 5e | 9 | massa voor A |
+| 6e | 11 | A Nederlands |
+| 7e | 13 | A Frans |
+| 8e | 15 | A Engels |
+| 15e | 29 | B Nederlands |
+| 16e | 31 | B Frans |
+| 17e | 33 | B Engels |
 
-## Geluid
+Massa voor B is pin 34: op de buitenste rij, recht naast pin 33.
 
-Bij elke start:
+Elke knop is een momentdrukker. Eén pootje naar de pin, het andere naar massa. Geen weerstand, geen pluspool. De pootjes van A mogen samen op pin 9. De pootjes van B mogen samen op pin 34.
 
-```bash
-pactl set-default-sink alsa_output.platform-bcm2835_audio.stereo-fallback
-```
+De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de USB-C-voeding, tussen die voeding en de HDMI-poorten. Voeding: USB-C, 5 V, 3 A.
 
-Elk bestand:
+## Fragmenten vervangen
+
+Een USB-stick is het eenvoudigst. De Pi blijft dicht en aan.
+
+1. Stick als FAT32, volumenaam `AUDIO`.
+2. Map `audio` met dezelfde zes namen.
+3. Stick in een USB-poort van de Pi. De volgende druk speelt het nieuwe bestand.
+4. Stick eruit: de bestanden op de SD-kaart gelden weer.
+
+De SD-kaart in de pc kan ook. Zet de Pi uit, steek de kaart in de pc en open de schijf `bootfs`. Vervang een bestand in de map `audio`. Laat `config.txt` met rust. Veilig uitwerpen, kaart terug, Pi aan.
+
+`zet-klaar.sh` zet een bestaande Raspberry Pi OS-kaart klaar zonder hem te wissen. Alleen de boot-schijf:
 
 ```bash
-aplay -D plughw:CARD=Headphones,DEV=0 bestand.wav
+pi-speler/sd/zet-klaar.sh --boot /pad/naar/bootfs
 ```
 
-`Headphones` is de jack. `vc4hdmi0` en `vc4hdmi1` worden niet geopend.
+De Pi installeert zichzelf bij de eerste start en start één keer opnieuw. Komt hij niet terug, zet `cmdline.txt.pi-speler-backup` terug als `cmdline.txt`.
 
-## Installeren op de Pi
-
-Bookworm, Python 3. Vanuit deze map:
+Op Linux, met de tweede partitie erbij, hoeft die regel niet:
 
 ```bash
-sudo ./install.sh
+pi-speler/sd/zet-klaar.sh --boot /mnt/boot --root /mnt/root
 ```
 
-Dat zet `python3-gpiozero`, `alsa-utils` en `pulseaudio-utils` erop en zet de service `pi-speler` aan. De service start na `sound.target`, opnieuw bij een crash, en bij elke boot. Audiobestanden en `/boot/config.txt` blijven staan.
-
-`USB_MOUNT` in `config.py` is `/mnt/pi-speler`. Staat op die stick `audio/nl`, `audio/fr` én `audio/en`, dan gelden die bestanden. Anders de map `audio/` naast het programma.
-
-Logs als een knop stil blijft:
-
-```bash
-journalctl -u pi-speler -f
-```
-
-## Zonder Pi-pinnen
+## Zonder knoppen
 
 ```bash
 PI_SPELER_BENCH=1 python3 pi_speler.py
 ```
 
-Typ `nl 1`, `fr 3`, `en 6`, `stop` of `quit`.
-
-Test:
+Typ `a nl`, `b frans`, `a-engels`, `stop` of `quit`.
 
 ```bash
 python3 -m unittest discover -s tests -v

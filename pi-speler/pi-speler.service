@@ -1,5 +1,5 @@
 [Unit]
-Description=Pi-speler: 18 knoppen naar de koptelefoonuitgang
+Description=Pi-speler: knoppen A en B naar de koptelefoonuitgang
 After=sound.target
 Wants=sound.target
 StartLimitIntervalSec=0
@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 WorkingDirectory=@DIR@
-ExecStart=/usr/bin/python3 -u "@DIR@/pi_speler.py"
+ExecStart=@DIR@/start.sh
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=5

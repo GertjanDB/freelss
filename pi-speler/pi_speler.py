@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Pi-speler: 18 momentknoppen, één bestand per knop, uitgang op de jack.
+"""Pi-speler: knoppen A en B, drie talen, uitgang op de jack.
 
 Zonder GPIO (laptop, test):
 
@@ -68,9 +68,9 @@ class Player:
 
     def press_button(self, spec: ButtonSpec) -> None:
         try:
-            path = spec.wav_path(self._library.root())
+            path = self._library.wav_for(spec)
             log.info(
-                "knop v%s %s bcm=%s pin=%s -> %s",
+                "knop %s %s bcm=%s pin=%s -> %s",
                 spec.version,
                 spec.language,
                 spec.bcm,
@@ -80,7 +80,7 @@ class Player:
             self._playback.press(path)
         except Exception:
             log.exception(
-                "knop v%s %s faalde; de speler blijft lopen",
+                "knop %s %s faalde; de speler blijft lopen",
                 spec.version,
                 spec.language,
             )
@@ -247,7 +247,7 @@ def serve_gpio(player: Player) -> None:
             button = Button(spec.bcm, **BUTTON_KWARGS)
         except Exception:
             log.exception(
-                "knop v%s %s bcm=%s pin=%s niet geopend; de andere knoppen gaan door",
+                "knop %s %s bcm=%s pin=%s niet geopend; de andere knoppen gaan door",
                 spec.version,
                 spec.language,
                 spec.bcm,
@@ -275,7 +275,7 @@ def serve_gpio(player: Player) -> None:
 
 
 def serve_bench(player: Player) -> None:
-    log.info("bench: typ 'nl 1', 'fr 3', 'en 6', 'stop' of 'quit'")
+    log.info("bench: typ 'a nl', 'b frans', 'a-engels', 'stop' of 'quit'")
     while True:
         try:
             line = input()

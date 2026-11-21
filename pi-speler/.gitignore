@@ -1,5 +1,5 @@
 __pycache__/
 *.py[cod]
-audio/*/*.wav
-audio/*/*.WAV
-audio/*/*.wave
+*.img
+*.img.xz
+pi-user.hash

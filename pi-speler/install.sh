@@ -13,11 +13,35 @@ else
   SUDO=(sudo)
 fi
 
-"${SUDO[@]}" apt-get update
-"${SUDO[@]}" apt-get install -y python3-gpiozero alsa-utils pulseaudio-utils
+if ! "${SUDO[@]}" apt-get update \
+  || ! "${SUDO[@]}" apt-get install -y python3-gpiozero alsa-utils pulseaudio-utils; then
+  echo "pi-speler: pakketten niet bijgewerkt. Bestaande python3, gpiozero en aplay blijven gelden." >&2
+fi
 
-mkdir -p "$ROOT/audio/nl" "$ROOT/audio/fr" "$ROOT/audio/en"
+chmod +x "$ROOT/start.sh"
+
+boot_audio=""
+if [[ -d /boot/firmware ]]; then
+  boot_audio=/boot/firmware/audio
+elif [[ -f /boot/cmdline.txt ]]; then
+  boot_audio=/boot/audio
+fi
+if [[ -n "$boot_audio" ]]; then
+  "${SUDO[@]}" mkdir -p "$boot_audio"
+  for wav in "$ROOT"/audio/*.wav; do
+    [[ -f "$wav" ]] || continue
+    name="$(basename "$wav")"
+    if [[ ! -f "$boot_audio/$name" ]]; then
+      "${SUDO[@]}" cp "$wav" "$boot_audio/$name"
+    fi
+  done
+fi
+
 "${SUDO[@]}" mkdir -p /mnt/pi-speler
+if [[ -f /etc/fstab ]] && ! grep -q '/mnt/pi-speler' /etc/fstab; then
+  printf '%s\n' 'LABEL=AUDIO  /mnt/pi-speler  auto  defaults,nofail,x-systemd.device-timeout=5,noatime  0  0' \
+    | "${SUDO[@]}" tee -a /etc/fstab >/dev/null
+fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT

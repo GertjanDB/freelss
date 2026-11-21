@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Instellingen die je op de Pi mag aanpassen.
 
-USB_MOUNT is de enige plek voor het stick-pad. Staat op die stick
-audio/nl, audio/fr én audio/en, dan speelt de speler dáárvandaan.
+USB_MOUNT is het koppelpunt van een stick met de map audio/.
+Staat een fragment daar, dan wint dat van het bestand op de SD-kaart.
 """
 
 from __future__ import annotations
 
-# Koppelpunt van de USB-stick. Niet de map audio/ zelf:
-# de stick moet audio/nl, audio/fr en audio/en bevatten.
+# Koppelpunt van de USB-stick. De stick bevat audio/a-nederlands.wav enzovoort.
 USB_MOUNT = "/mnt/pi-speler"
 
 # Vast volume van de jack. Geen knop; de versterker regel je aan de speaker.
