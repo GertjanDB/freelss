@@ -72,7 +72,7 @@ done
 cp "$SRC/audio/LEESMIJ.txt" "$BOOT/audio/LEESMIJ.txt"
 cp "$HERE/AUDIO-LEESMIJ.txt" "$BOOT/AUDIO-LEESMIJ.txt"
 
-for file in config.py hours.py mapping.py playback.py pi_speler.py install.sh start.sh pi-speler.service; do
+for file in config.py mapping.py playback.py pi_speler.py install.sh start.sh pi-speler.service; do
   cp "$SRC/$file" "$BOOT/pi-speler/$file"
 done
 cp "$HERE/eenmalig.sh" "$BOOT/pi-speler/eenmalig.sh"
@@ -85,7 +85,7 @@ if [[ -n "$ROOT" ]]; then
   fi
   opt="$ROOT/opt/pi-speler"
   mkdir -p "$opt/audio" "$ROOT/mnt/pi-speler" "$ROOT/etc/systemd/system/multi-user.target.wants"
-  for file in config.py hours.py mapping.py playback.py pi_speler.py install.sh start.sh; do
+  for file in config.py mapping.py playback.py pi_speler.py install.sh start.sh; do
     cp "$SRC/$file" "$opt/$file"
   done
   chmod +x "$opt/install.sh" "$opt/start.sh"

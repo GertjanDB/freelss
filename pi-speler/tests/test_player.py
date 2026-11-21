@@ -16,10 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from datetime import datetime, timedelta, timezone
-
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
-from hours import NightIdle, is_quiet_hour
 from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
@@ -169,70 +166,6 @@ class MapTests(unittest.TestCase):
         self.assertEqual(len(set(bcms)), 9)
         for pin in pins:
             self.assertNotIn(pin, POWER_OR_GND)
-
-
-class NightTests(unittest.TestCase):
-    def test_quiet_hours_follow_brussels(self) -> None:
-        utc = timezone.utc
-        self.assertFalse(is_quiet_hour(datetime(2026, 1, 15, 21, 59, tzinfo=utc)))
-        self.assertTrue(is_quiet_hour(datetime(2026, 1, 15, 22, 0, tzinfo=utc)))
-        self.assertTrue(is_quiet_hour(datetime(2026, 1, 15, 6, 59, tzinfo=utc)))
-        self.assertFalse(is_quiet_hour(datetime(2026, 1, 15, 7, 0, tzinfo=utc)))
-        self.assertTrue(is_quiet_hour(datetime(2026, 7, 15, 21, 0, tzinfo=utc)))
-        self.assertFalse(is_quiet_hour(datetime(2026, 7, 15, 6, 0, tzinfo=utc)))
-
-    def test_running_pi_goes_quiet_at_23_and_wakes_at_08(self) -> None:
-        start = datetime(2026, 1, 15, 21, 50, tzinfo=timezone.utc)
-        moment = {"at": start}
-
-        def now() -> datetime:
-            return moment["at"]
-
-        night = NightIdle(now=now)
-        self.assertIsNone(night.tick())
-        self.assertFalse(night.silent)
-        moment["at"] = start + timedelta(minutes=11)
-        self.assertEqual(night.tick(), "nacht")
-        self.assertTrue(night.silent)
-        moment["at"] = datetime(2026, 1, 16, 6, 59, tzinfo=timezone.utc)
-        self.assertIsNone(night.tick())
-        self.assertTrue(night.silent)
-        moment["at"] = datetime(2026, 1, 16, 7, 0, tzinfo=timezone.utc)
-        self.assertEqual(night.tick(), "dag")
-        self.assertFalse(night.silent)
-
-    def test_power_restore_at_night_stays_awake(self) -> None:
-        start = datetime(2026, 1, 15, 1, 30, tzinfo=timezone.utc)
-        moment = {"at": start}
-        night = NightIdle(now=lambda: moment["at"])
-        self.assertIsNone(night.tick())
-        moment["at"] = start + timedelta(hours=4)
-        self.assertIsNone(night.tick())
-        self.assertFalse(night.silent)
-
-    def test_night_press_does_not_play(self) -> None:
-        from pi_speler import Player
-
-        moment = {"at": datetime(2026, 1, 15, 21, 50, tzinfo=timezone.utc)}
-        night = NightIdle(now=lambda: moment["at"])
-        night.tick()
-        moment["at"] = datetime(2026, 1, 15, 22, 5, tzinfo=timezone.utc)
-        backend = FakeBackend()
-        played: list[Path] = []
-
-        class Library:
-            def wav_for(self, spec: object) -> Path:
-                played.append(Path("nope.wav"))
-                return Path("nope.wav")
-
-        with tempfile.TemporaryDirectory() as tmp:
-            route = OutputRoute(Path(tmp) / "standaard", APLAY_DEVICE)
-            player = Player(Library(), Playback(backend), route, night)
-            player.press_button(BUTTONS[0])
-            player.guide()
-        self.assertEqual(played, [])
-        self.assertEqual(backend.events, [("stop", None)])
-        self.assertFalse(route.guide)
 
 
 class ClipTests(unittest.TestCase):
