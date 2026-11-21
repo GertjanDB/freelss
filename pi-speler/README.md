@@ -35,14 +35,9 @@ De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de U
 
 ## Fragmenten vervangen
 
-Een USB-stick is het eenvoudigst. De Pi blijft dicht en aan.
+Een keer per jaar is de SD-kaart in de Mac het eenvoudigst. Zet de Pi uit, steek de kaart in de Mac en open de schijf `bootfs`. Vervang een bestand in de map `audio`. Zelfde naam. Laat `config.txt` met rust. Werp uit, kaart terug, Pi aan.
 
-1. Stick als FAT32, volumenaam `AUDIO`.
-2. Map `audio` met dezelfde zes namen.
-3. Stick in een USB-poort van de Pi. De volgende druk speelt het nieuwe bestand.
-4. Stick eruit: de bestanden op de SD-kaart gelden weer.
-
-De SD-kaart in de pc kan ook. Zet de Pi uit, steek de kaart in de pc en open de schijf `bootfs`. Vervang een bestand in de map `audio`. Laat `config.txt` met rust. Veilig uitwerpen, kaart terug, Pi aan.
+De bestanden: [pi-speler/audio](https://github.com/GertjanDB/freelss/tree/cursor/pi-fragmenten-ab-50f6/pi-speler/audio).
 
 `zet-klaar.sh` zet een bestaande Raspberry Pi OS-kaart klaar zonder hem te wissen. Alleen de boot-schijf:
 
