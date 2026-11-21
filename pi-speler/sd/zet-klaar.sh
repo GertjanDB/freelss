@@ -41,18 +41,21 @@ if [[ ! -f "$BOOT/config.txt" || ! -f "$BOOT/cmdline.txt" ]]; then
 fi
 
 # Lege regels tellen niet. Op een Mac eindigt cmdline.txt soms op een extra lege regel.
-cmdline_line=""
-cmdline_count=0
+cmdline_lines=()
 while IFS= read -r row || [[ -n "$row" ]]; do
   trimmed="${row#"${row%%[![:space:]]*}"}"
   trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
   trimmed="${trimmed//$'\r'/}"
   [[ -z "$trimmed" ]] && continue
-  cmdline_count=$((cmdline_count + 1))
-  if [[ "$cmdline_count" -eq 1 ]]; then
-    cmdline_line="$trimmed"
-  fi
+  cmdline_lines+=("$trimmed")
 done < "$BOOT/cmdline.txt"
+cmdline_count="${#cmdline_lines[@]}"
+
+# Bookworm en nieuwer hangen deze schijf op /boot/firmware. Oudere images op /boot.
+pi_prefix=/boot
+if grep -q 'auto_initramfs=1' "$BOOT/config.txt"; then
+  pi_prefix=/boot/firmware
+fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
@@ -118,24 +121,46 @@ if [[ -n "$ROOT" ]]; then
   exit 0
 fi
 
-if [[ "$cmdline_count" -ne 1 ]]; then
-  echo "De fragmenten staan in $BOOT/audio. cmdline.txt heeft ${cmdline_count} regels, die heb ik niet aangeraakt." >&2
+if [[ "$cmdline_count" -eq 0 ]]; then
+  echo "De fragmenten staan in $BOOT/audio. cmdline.txt is leeg, die heb ik niet aangeraakt." >&2
   exit 1
 fi
 
 if grep -q 'systemd.run=' "$BOOT/cmdline.txt"; then
   echo "cmdline.txt heeft al een startscript. Die regel blijft staan."
   if [[ -f "$BOOT/firstrun.sh" ]] && ! grep -q 'pi-speler/install.sh' "$BOOT/firstrun.sh"; then
-    printf '\nbash /boot/firmware/pi-speler/install.sh\n' >>"$BOOT/firstrun.sh"
+    printf '\nbash %s/pi-speler/install.sh\n' "$pi_prefix" >>"$BOOT/firstrun.sh"
     echo "installatie toegevoegd aan firstrun.sh"
   fi
   exit 0
+fi
+
+# De Pi leest alleen de eerste regel. Staat root= pas op een latere regel,
+# dan horen die regels bij elkaar en maken we er weer één regel van.
+first="${cmdline_lines[0]}"
+keep_rest=1
+if [[ "$first" != *root=* && "$cmdline_count" -gt 1 ]]; then
+  i=1
+  while [[ "$i" -lt "$cmdline_count" ]]; do
+    first="$first ${cmdline_lines[$i]}"
+    i=$((i + 1))
+  done
+  keep_rest=0
 fi
 
 backup="$BOOT/cmdline.txt.pi-speler-backup"
 if [[ ! -f "$backup" ]]; then
   cp "$BOOT/cmdline.txt" "$backup"
 fi
-printf '%s\n' "${cmdline_line} systemd.run=/boot/firmware/pi-speler/eenmalig.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target" >"$BOOT/cmdline.txt"
+{
+  printf '%s\n' "${first} systemd.run=${pi_prefix}/pi-speler/eenmalig.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target"
+  if [[ "$keep_rest" -eq 1 && "$cmdline_count" -gt 1 ]]; then
+    i=1
+    while [[ "$i" -lt "$cmdline_count" ]]; do
+      printf '%s\n' "${cmdline_lines[$i]}"
+      i=$((i + 1))
+    done
+  fi
+} >"$BOOT/cmdline.txt"
 echo "Klaar. Zet de kaart in de Pi. Die installeert zichzelf en start één keer opnieuw."
 echo "Komt hij niet terug, zet cmdline.txt.pi-speler-backup terug als cmdline.txt."
