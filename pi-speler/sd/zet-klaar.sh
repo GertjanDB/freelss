@@ -39,10 +39,20 @@ if [[ ! -f "$BOOT/config.txt" || ! -f "$BOOT/cmdline.txt" ]]; then
   echo "dit is geen Raspberry Pi boot-map: config.txt of cmdline.txt ontbreekt" >&2
   exit 1
 fi
-if [[ "$(wc -l < "$BOOT/cmdline.txt" | tr -d ' ')" -gt 1 ]]; then
-  echo "cmdline.txt heeft meer dan één regel. Ik laat die staan." >&2
-  exit 1
-fi
+
+# Lege regels tellen niet. Op een Mac eindigt cmdline.txt soms op een extra lege regel.
+cmdline_line=""
+cmdline_count=0
+while IFS= read -r row || [[ -n "$row" ]]; do
+  trimmed="${row#"${row%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  trimmed="${trimmed//$'\r'/}"
+  [[ -z "$trimmed" ]] && continue
+  cmdline_count=$((cmdline_count + 1))
+  if [[ "$cmdline_count" -eq 1 ]]; then
+    cmdline_line="$trimmed"
+  fi
+done < "$BOOT/cmdline.txt"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
@@ -108,6 +118,11 @@ if [[ -n "$ROOT" ]]; then
   exit 0
 fi
 
+if [[ "$cmdline_count" -ne 1 ]]; then
+  echo "De fragmenten staan in $BOOT/audio. cmdline.txt heeft ${cmdline_count} regels, die heb ik niet aangeraakt." >&2
+  exit 1
+fi
+
 if grep -q 'systemd.run=' "$BOOT/cmdline.txt"; then
   echo "cmdline.txt heeft al een startscript. Die regel blijft staan."
   if [[ -f "$BOOT/firstrun.sh" ]] && ! grep -q 'pi-speler/install.sh' "$BOOT/firstrun.sh"; then
@@ -121,8 +136,6 @@ backup="$BOOT/cmdline.txt.pi-speler-backup"
 if [[ ! -f "$backup" ]]; then
   cp "$BOOT/cmdline.txt" "$backup"
 fi
-line="$(tr -d '\r\n' < "$BOOT/cmdline.txt")"
-line="${line} systemd.run=/boot/firmware/pi-speler/eenmalig.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target"
-printf '%s\n' "$line" >"$BOOT/cmdline.txt"
+printf '%s\n' "${cmdline_line} systemd.run=/boot/firmware/pi-speler/eenmalig.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target" >"$BOOT/cmdline.txt"
 echo "Klaar. Zet de kaart in de Pi. Die installeert zichzelf en start één keer opnieuw."
 echo "Komt hij niet terug, zet cmdline.txt.pi-speler-backup terug als cmdline.txt."
