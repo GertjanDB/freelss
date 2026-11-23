@@ -28,6 +28,10 @@ ANALOG_SINK = "alsa_output.platform-bcm2835_audio.stereo-fallback"
 # ALSA-kaart van diezelfde jack. vc4hdmi0 / vc4hdmi1 zijn de HDMI-poorten.
 APLAY_DEVICE = "plughw:CARD=Headphones,DEV=0"
 
+# De groene ACT-led op het bordje knippert zolang er een fragment speelt.
+# Seconden aan, dan evenveel uit. Uitzetten: PI_SPELER_LED=uit.
+LED_BLINK_S = 0.25
+
 # usb of jack. De geheime config-pin draait dit om. Blijft staan na een herstart.
 STATE_PATH = Path("/var/lib/pi-speler/standaard")
 

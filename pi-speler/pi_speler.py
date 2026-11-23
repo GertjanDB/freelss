@@ -20,11 +20,13 @@ from pathlib import Path
 from config import (
     APLAY_DEVICE,
     BUTTON_KWARGS,
+    LED_BLINK_S,
     STATE_PATH,
     USB_MOUNT,
     force_analog_command,
     volume_command,
 )
+from led import open_led
 from mapping import BUTTONS, CONTROLS, AudioLibrary, ButtonSpec, ControlSpec, parse_bench_line
 from playback import AplayBackend, OutputRoute, Playback
 
@@ -361,9 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     device = playback_device(bench)
     route = OutputRoute(STATE_PATH, APLAY_DEVICE)
     log.info("standaard %s", route.preference)
+    # Groene ACT-led: knippert tijdens een fragment. Zonder led gaat alles gewoon door.
+    led = open_led(interval=LED_BLINK_S)
     player = Player(
         library,
-        Playback(AplayBackend(device, follow_cards=not bench, route=route)),
+        Playback(AplayBackend(device, follow_cards=not bench, route=route, led=led)),
         route,
     )
     install_signals(player)
@@ -379,6 +383,10 @@ def main(argv: list[str] | None = None) -> int:
             serve_gpio(player)
     finally:
         player.close()
+        try:
+            led.close()
+        except Exception:
+            log.exception("groene led terugzetten mislukt")
     return 0
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
+from led import ActLed, NoLed, current_trigger, find_led, open_led
 from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
@@ -99,7 +101,7 @@ class MapTests(unittest.TestCase):
         self.assertIn("when_pressed", source)
         self.assertNotIn("when_held", source)
         self.assertNotIn("RPi.GPIO", source)
-        for name in ("config.py", "mapping.py", "playback.py", "pi_speler.py"):
+        for name in ("config.py", "mapping.py", "playback.py", "led.py", "pi_speler.py"):
             self.assertNotIn("RPi.GPIO", (ROOT / name).read_text(encoding="utf-8"))
 
     def test_bench_lines_use_the_same_map(self) -> None:
@@ -119,7 +121,8 @@ class MapTests(unittest.TestCase):
 
     def test_usb_beats_sd_card_and_sd_card_beats_local_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
+            # macOS: /var is een link naar /private/var.
+            base = Path(tmp).resolve()
             app = base / "app"
             local = app / "audio"
             boot = base / "boot"
@@ -440,6 +443,160 @@ card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
         self.assertEqual(len(procs), 2)
 
 
+def fake_led(folder: Path, trigger: str = "none [mmc0] timer heartbeat") -> Path:
+    folder.mkdir(parents=True)
+    (folder / "trigger").write_text(trigger, encoding="utf-8")
+    (folder / "brightness").write_text("0", encoding="utf-8")
+    (folder / "max_brightness").write_text("255", encoding="utf-8")
+    return folder
+
+
+def wait_until(check, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.01)
+    return check()
+
+
+class RecordingLed:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def blink(self) -> None:
+        self.events.append("blink")
+
+    def idle(self) -> None:
+        self.events.append("idle")
+
+    def close(self) -> None:
+        self.events.append("close")
+
+
+class LedTests(unittest.TestCase):
+    def test_act_wins_and_led0_is_the_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            act = base / "ACT"
+            led0 = fake_led(base / "led0")
+            self.assertEqual(find_led((act, led0)), led0)
+            fake_led(act)
+            self.assertEqual(find_led((act, led0)), act)
+            self.assertIsNone(find_led((base / "nergens",)))
+        self.assertEqual(current_trigger("none [mmc0] timer"), "mmc0")
+        self.assertIsNone(current_trigger("none mmc0"))
+
+    def test_led_blinks_while_playing_and_goes_back_after(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = fake_led(Path(tmp) / "ACT")
+            led = ActLed(folder, interval=0.02)
+            self.addCleanup(led.close)
+            brightness = folder / "brightness"
+            self.assertEqual((folder / "trigger").read_text(encoding="utf-8"), "none")
+            self.assertEqual(brightness.read_text(encoding="utf-8"), "0")
+            led.blink()
+            led.blink()
+            seen: set[str] = set()
+
+            def toggled() -> bool:
+                seen.add(brightness.read_text(encoding="utf-8"))
+                return {"0", "255"} <= seen
+
+            self.assertTrue(wait_until(toggled))
+            led.idle()
+            self.assertEqual(brightness.read_text(encoding="utf-8"), "0")
+            time.sleep(0.08)
+            self.assertEqual(brightness.read_text(encoding="utf-8"), "0")
+            led.close()
+            self.assertEqual((folder / "trigger").read_text(encoding="utf-8"), "mmc0")
+
+    def test_close_falls_back_to_sd_activity_after_a_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = fake_led(Path(tmp) / "ACT", "[none] mmc0 timer")
+            led = ActLed(folder, interval=0.02)
+            led.close()
+            self.assertEqual((folder / "trigger").read_text(encoding="utf-8"), "mmc0")
+
+    def test_no_led_or_no_rights_never_breaks_the_player(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            self.assertIsInstance(open_led((base / "ACT",)), NoLed)
+            folder = fake_led(base / "ACT")
+            with unittest.mock.patch.dict(os.environ, {"PI_SPELER_LED": "uit"}):
+                self.assertIsInstance(open_led((folder,)), NoLed)
+            with unittest.mock.patch.object(
+                Path, "write_text", side_effect=PermissionError("geen rechten")
+            ):
+                with self.assertLogs("pi-speler", level="WARNING"):
+                    led = open_led((folder,))
+            self.assertIsInstance(led, NoLed)
+            led.blink()
+            led.idle()
+            led.close()
+
+            real = ActLed(folder, interval=0.01)
+            with unittest.mock.patch.object(
+                Path, "write_text", side_effect=OSError("weg")
+            ):
+                with self.assertLogs("pi-speler", level="WARNING"):
+                    real.blink()
+                    wait_until(lambda: not real.usable)
+                real.idle()
+                real.close()
+            self.assertFalse(real.usable)
+
+    def test_backend_drives_the_led(self) -> None:
+        FakeProc.spawned = []
+        led = RecordingLed()
+        backend = AplayBackend(APLAY_DEVICE, led=led)
+        self.addCleanup(backend.stop)
+        with unittest.mock.patch("playback.subprocess.Popen", FakeProc):
+            backend.play(Path("audio/a-nederlands.wav"))
+            self.assertEqual(led.events[-1], "blink")
+            # Nieuwe druk: even uit, meteen weer knipperen.
+            backend.play(Path("audio/a-frans.wav"))
+            self.assertEqual(led.events[-1], "blink")
+            backend.stop()
+            self.assertEqual(led.events[-1], "idle")
+            # Vanzelf gedaan: led terug uit.
+            backend.play(Path("audio/b-engels.wav"))
+            self.assertEqual(led.events[-1], "blink")
+            proc = FakeProc.spawned[-1]
+            proc.returncode = 0
+            proc._done.set()
+            self.assertTrue(wait_until(lambda: led.events[-1] == "idle"))
+
+    def test_old_clip_ending_does_not_turn_off_the_new_one(self) -> None:
+        FakeProc.spawned = []
+        led = RecordingLed()
+        backend = AplayBackend(APLAY_DEVICE, led=led)
+        self.addCleanup(backend.stop)
+        with unittest.mock.patch("playback.subprocess.Popen", FakeProc):
+            backend.play(Path("audio/a-nederlands.wav"))
+            backend.play(Path("audio/a-frans.wav"))
+            time.sleep(0.05)
+        self.assertEqual(led.events[-1], "blink")
+
+    def test_broken_led_does_not_stop_playback(self) -> None:
+        class BadLed:
+            def blink(self) -> None:
+                raise RuntimeError("led kapot")
+
+            def idle(self) -> None:
+                raise RuntimeError("led kapot")
+
+        FakeProc.spawned = []
+        backend = AplayBackend(APLAY_DEVICE, led=BadLed())
+        self.addCleanup(backend.stop)
+        with unittest.mock.patch("playback.subprocess.Popen", FakeProc):
+            with self.assertLogs("pi-speler", level="ERROR"):
+                backend.play(Path("audio/a-nederlands.wav"))
+                backend.stop()
+        self.assertEqual(len(FakeProc.spawned), 1)
+        self.assertEqual(FakeProc.spawned[0].returncode, -15)
+
+
 class InstallFileTests(unittest.TestCase):
     def test_service_starts_after_sound_and_restarts(self) -> None:
         text = (ROOT / "pi-speler.service").read_text(encoding="utf-8")
@@ -447,6 +604,10 @@ class InstallFileTests(unittest.TestCase):
         self.assertIn("Restart=on-failure", text)
         self.assertIn("WantedBy=multi-user.target", text)
         self.assertNotIn("PI_SPELER_BENCH", text)
+        # De groene led vraagt root.
+        self.assertIn("User=root", text)
+        klaar = (ROOT / "sd" / "zet-klaar.sh").read_text(encoding="utf-8")
+        self.assertEqual(klaar.count("led.py"), 2)
         install = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("python3-gpiozero", install)
         self.assertIn("alsa-utils", install)

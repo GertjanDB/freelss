@@ -126,6 +126,7 @@ class AplayBackend:
     """Stroomt één bestand naar één ALSA-apparaat. Stop = proces dood.
 
     Met follow_cards kijkt elke druk of de USB-versterker eraan hangt.
+    Met led knippert de groene led zolang er een fragment speelt.
     """
 
     def __init__(
@@ -134,8 +135,11 @@ class AplayBackend:
         *,
         follow_cards: bool = False,
         route: OutputRoute | None = None,
+        led: object | None = None,
     ) -> None:
         self.device = device
+        # Groene led: knippert zolang aplay loopt. None = geen led.
+        self.led = led
         self.follow_cards = follow_cards
         self.route = route
         self._active = device
@@ -143,6 +147,9 @@ class AplayBackend:
         self._path: Path | None = None
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
+        # Apart slot voor de led, zodat een oud fragment dat net eindigt
+        # de led niet uitzet terwijl het nieuwe al speelt.
+        self._led_lock = threading.Lock()
 
     def output_device(self) -> str:
         if not self.follow_cards:
@@ -171,18 +178,31 @@ class AplayBackend:
             self._active = chosen
         return chosen
 
+    def _led(self, action: str) -> None:
+        # Een led-fout mag het afspelen nooit breken.
+        if self.led is None:
+            return
+        try:
+            getattr(self.led, action)()
+        except Exception:
+            log.exception("groene led %s mislukt; afspelen gaat door", action)
+
     def stop(self) -> None:
         with self._lock:
             proc = self._proc
             self._proc = None
-        if proc is None or proc.poll() is not None:
-            return
-        proc.terminate()
         try:
-            proc.wait(timeout=1.5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=1.5)
+            if proc is None or proc.poll() is not None:
+                return
+            proc.terminate()
+            try:
+                proc.wait(timeout=1.5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=1.5)
+        finally:
+            with self._led_lock:
+                self._led("idle")
 
     def replay_if_playing(self) -> None:
         with self._lock:
@@ -207,6 +227,8 @@ class AplayBackend:
             raise RuntimeError(f"aplay start mislukt: {exc}") from exc
         with self._lock:
             self._proc = proc
+        with self._led_lock:
+            self._led("blink")
         threading.Thread(
             target=self._watch,
             args=(proc,),
@@ -221,7 +243,17 @@ class AplayBackend:
         code = proc.wait()
         with self._lock:
             still_current = self._proc is proc
-        if not still_current or code == 0:
+            if still_current:
+                # Vanzelf gedaan: het fragment is uit, de led ook.
+                self._proc = None
+        if not still_current:
+            return
+        with self._led_lock:
+            with self._lock:
+                newer = self._proc is not None
+            if not newer:
+                self._led("idle")
+        if code == 0:
             return
         text = err.decode("utf-8", "replace").strip()
         log.error("aplay fout (code %s): %s", code, text or "(geen melding)")

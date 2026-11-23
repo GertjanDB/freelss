@@ -6,6 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+# Root: de groene ACT-led (/sys/class/leds/ACT) vraagt schrijfrechten.
+User=root
 WorkingDirectory=@DIR@
 ExecStart=@DIR@/start.sh
 Restart=on-failure

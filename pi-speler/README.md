@@ -48,6 +48,12 @@ Standaard gaat een fragment naar de Audiophony als die met een USB-datakabel aan
 
 De knoppen doen het ook 's nachts. De Pi blijft aan en herstart niet op een klok. Komt de stroom terug, dan start hij en blijft hij aan. Stopt de speler met een fout, dan start de service hem opnieuw.
 
+## Groene led
+
+De groene led op het bordje, naast de rode, knippert zolang er een fragment speelt. Geen draad nodig. Is het fragment gedaan, druk je op stop, of kapt een nieuwe knop het af, dan gaat hij uit. Een nieuw fragment laat hem meteen weer knipperen. Stopt de speler, dan doet de led weer wat de Pi gewoon doet: knipperen bij SD-gebruik.
+
+De speler schrijft naar `/sys/class/leds/ACT` (oudere systemen: `led0`). De service draait daarom als root. `config.txt` blijft onaangeroerd. Lukt de led niet, dan staat er één regel in de log en spelen de knoppen gewoon. Uitzetten: `PI_SPELER_LED=uit`.
+
 ## Fragmenten vervangen
 
 Een keer per jaar is de SD-kaart in de Mac het eenvoudigst. Zet de Pi uit, steek de kaart in de Mac en open de schijf `bootfs`. Vervang een bestand in de map `audio`. Zelfde naam. Laat `config.txt` met rust. Werp uit, kaart terug, Pi aan.
@@ -69,6 +75,8 @@ pi-speler/sd/zet-klaar.sh --boot /pad/naar/bootfs
 ```
 
 De Pi installeert zichzelf bij de eerste start en start één keer opnieuw. Komt hij niet terug, zet `cmdline.txt.pi-speler-backup` terug als `cmdline.txt`.
+
+Een nieuwe versie op een kaart die al draait: Pi uit, kaart in de Mac, en hetzelfde commando met `--boot /Volumes/bootfs`. De fragmenten in `audio` blijven staan. De Pi installeert bij de volgende start opnieuw en start één keer opnieuw.
 
 Op Linux, met de tweede partitie erbij, hoeft die regel niet:
 
