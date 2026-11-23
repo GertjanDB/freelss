@@ -1,6 +1,6 @@
 # Pi-speler
 
-Acht momentknoppen op een Raspberry Pi 4B, plus een config-pin zonder draad. Zes knoppen spelen A en B, elk in het Nederlands, Frans en Engels. Gids zet het geluid op de andere uitgang. Stop kapt het fragment af. Een nieuwe fragmentknop stopt wat er speelt en begint dat bestand vooraan. Niets herhaalt vanzelf.
+Acht momentknoppen op een Raspberry Pi 4B, plus een config-pin zonder draad. Zes knoppen spelen A en B, elk in het Nederlands, Frans en Engels. Gids zet het geluid op de andere uitgang. Stop kapt het fragment af. Elke druk op een fragmentknop stopt wat er speelt en begint dat bestand vooraan, ook als je dezelfde knop nog eens drukt terwijl hij speelt. Niets herhaalt vanzelf.
 
 ```
 audio/a-nederlands.wav    zegt: A. Nederlands.

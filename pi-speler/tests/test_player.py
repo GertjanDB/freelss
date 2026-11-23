@@ -21,10 +21,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
+from config import (
+    APLAY_DEVICE,
+    BUTTON_KWARGS,
+    FRAGMENT_BUTTON_KWARGS,
+    force_analog_command,
+    volume_command,
+)
 from led import ActLed, NoLed, current_trigger, find_led, open_led
 import pi_speler
-from pi_speler import Player, choose_pin_factory, startup_enabled, startup_specs
+from pi_speler import PressDetector, Player, choose_pin_factory, startup_enabled, startup_specs
 from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
@@ -1183,6 +1189,152 @@ class LgpioCrashTests(unittest.TestCase):
         run.assert_not_called()
         self.assertFalse([line for line in logs.output if line.startswith("WARNING")])
         self.assertIn("geen pactl", "\n".join(logs.output))
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class SamePressTests(unittest.TestCase):
+    def test_every_low_level_counts_also_without_release(self) -> None:
+        clock = FakeClock()
+        presses: list[float] = []
+        detector = PressDetector(lambda: presses.append(clock.now), debounce=0.08, guard=0.03, clock=clock)
+        detector.on_level(None, 0)  # druk
+        clock.now += 0.005
+        detector.on_level(None, 1)  # dender
+        clock.now += 0.002
+        detector.on_level(None, 0)  # dender
+        self.assertEqual(len(presses), 1)
+        clock.now += 0.3
+        detector.on_level(None, 1)  # loslaten
+        clock.now += 0.01
+        detector.on_level(None, 0)  # dender van het loslaten
+        self.assertEqual(len(presses), 1)
+        clock.now += 0.3
+        detector.on_level(None, 0)  # zelfde knop opnieuw
+        self.assertEqual(len(presses), 2)
+        # Losgelaten-flank gemist: de volgende druk telt toch.
+        clock.now += 0.4
+        detector.on_level(None, 0)
+        self.assertEqual(len(presses), 3)
+        clock.now += 0.05
+        detector.on_level(None, 0)  # binnen 80 ms: dender
+        detector.on_level(None, 2)  # watchdog, geen flank
+        self.assertEqual(len(presses), 3)
+
+    def test_same_fragment_restarts_from_the_start_while_playing(self) -> None:
+        backend = FakeBackend()
+        playback = Playback(backend)
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "a-frans.wav"
+            write_wav(wav)
+            playback.press(wav)
+            playback.press(wav)
+            playback.press(wav)
+        plays = [event for event in backend.events if event[0] == "play"]
+        self.assertEqual(len(plays), 3)
+        self.assertEqual(backend.events[-2:], [("stop", wav), ("play", wav)])
+
+    def test_same_fragment_kills_running_aplay_and_starts_a_new_one(self) -> None:
+        FakeProc.spawned = []
+        backend = AplayBackend(APLAY_DEVICE)
+        self.addCleanup(backend.stop)
+        with unittest.mock.patch("playback.subprocess.Popen", FakeProc):
+            for _ in range(3):
+                self.assertTrue(backend.play(Path("audio/b-engels.wav")))
+        procs = FakeProc.spawned
+        self.assertEqual(len(procs), 3)
+        self.assertEqual([proc.returncode for proc in procs[:2]], [-15, -15])
+        self.assertIsNone(procs[2].returncode)
+
+    def test_gpio_same_button_three_times_plays_three_times(self) -> None:
+        module = types.ModuleType("gpiozero")
+        made: list[object] = []
+
+        class Pin:
+            def __init__(self) -> None:
+                self.when_changed = None
+
+        class Button:
+            pin_factory = LGPIOFactory()
+
+            def __init__(self, pin: int, **kwargs: object) -> None:
+                self.number = pin
+                self.kwargs = kwargs
+                self.pin = Pin()
+                self.when_pressed = None
+                made.append(self)
+
+            def close(self) -> None:
+                pass
+
+        module.Button = Button
+        backend = FakeBackend()
+        with tempfile.TemporaryDirectory() as tmp:
+            library = StubLibrary(Path(tmp) / "audio")
+            route = OutputRoute(Path(tmp) / "standaard", APLAY_DEVICE)
+            player = Player(library, Playback(backend), route)
+            workers: list[pi_speler.PressWorker] = []
+            real_worker = pi_speler.PressWorker
+
+            def make_worker() -> pi_speler.PressWorker:
+                worker = real_worker()
+                workers.append(worker)
+                return worker
+
+            with (
+                unittest.mock.patch.dict(os.environ, {"GPIOZERO_PIN_FACTORY": "lgpio"}),
+                unittest.mock.patch.dict(sys.modules, {"gpiozero": module, "lgpio": types.ModuleType("lgpio")}),
+                unittest.mock.patch.object(pi_speler.signal, "pause", unittest.mock.Mock()),
+                unittest.mock.patch.object(pi_speler, "PressWorker", make_worker),
+            ):
+                pi_speler.serve_gpio(player)
+            fragment = {b.number: b for b in made}
+            # Fragmentknoppen zonder lgpio-debounce, stop en gids zoals voorheen.
+            for spec in BUTTONS:
+                self.assertEqual(fragment[spec.bcm].kwargs, FRAGMENT_BUTTON_KWARGS)
+                self.assertIsNotNone(fragment[spec.bcm].pin.when_changed)
+                self.assertIsNone(fragment[spec.bcm].when_pressed)
+            for spec in CONTROLS:
+                self.assertEqual(fragment[spec.bcm].kwargs, BUTTON_KWARGS)
+                self.assertIsNotNone(fragment[spec.bcm].when_pressed)
+            dutch = fragment[17].pin.when_changed
+            for _ in range(3):
+                dutch(None, 0)
+                time.sleep(0.1)
+            workers[0].join()
+        plays = [event[1].name for event in backend.events if event[0] == "play"]
+        self.assertEqual(plays, ["a-nederlands.wav"] * 3)
+
+
+class PactlQuietTests(unittest.TestCase):
+    def test_refused_pactl_logs_one_info_and_does_not_retry(self) -> None:
+        refused = subprocess.CompletedProcess(["pactl"], 1, "", "Connection failure: Connection refused")
+        run = unittest.mock.Mock(return_value=refused)
+        with (
+            unittest.mock.patch.object(pi_speler.shutil, "which", return_value="/usr/bin/pactl"),
+            unittest.mock.patch.object(pi_speler, "_run_command", run),
+            unittest.mock.patch.object(pi_speler, "_sound_sessions", return_value=[]),
+            self.assertLogs("pi-speler", level="INFO") as logs,
+        ):
+            pi_speler.force_analog_output()
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual([line for line in logs.output if line.startswith("WARNING")], [])
+        self.assertEqual(len(logs.output), 1)
+
+    def test_only_users_with_a_sound_socket_are_tried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_user = Path(tmp)
+            (run_user / "1000").mkdir()
+            (run_user / str(os.getuid()) / "pulse").mkdir(parents=True, exist_ok=True)
+            (run_user / str(os.getuid()) / "pulse" / "native").write_text("", encoding="utf-8")
+            found = pi_speler._sound_sessions(run_user)
+        self.assertEqual([entry.name for entry, _name in found], [str(os.getuid())])
 
 
 class InstallFileTests(unittest.TestCase):

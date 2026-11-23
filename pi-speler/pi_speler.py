@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import pwd
+import queue
 import shutil
 import signal
 import subprocess
@@ -18,11 +19,14 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from config import (
     APLAY_DEVICE,
     BUTTON_KWARGS,
+    FRAGMENT_BUTTON_KWARGS,
+    FRAGMENT_DEBOUNCE_S,
+    RELEASE_GUARD_S,
     LED_BLINK_S,
     OPSTART,
     OPSTART_PAUZE_S,
@@ -250,19 +254,13 @@ def force_analog_output() -> None:
     if result is not None and result.returncode == 0:
         log.info("analoge uitgang gezet: %s", shown)
         return
-    if result is not None:
-        log.warning("analoge uitgang niet gezet (%s): %s", shown, result.stderr.strip())
-    run_user = Path("/run/user")
-    if not run_user.is_dir():
-        log.info("afspelen gaat toch naar de koptelefoonkaart")
+    # Root heeft meestal geen eigen PipeWire. Alleen een gebruiker met een
+    # draaiende PipeWire/Pulse proberen we nog; anders één info-regel.
+    sessions = _sound_sessions()
+    if not sessions:
+        log.info("geen PipeWire/Pulse actief; afspelen gaat rechtstreeks naar %s", APLAY_DEVICE)
         return
-    for entry in sorted(run_user.iterdir()):
-        if not entry.name.isdigit():
-            continue
-        try:
-            name = pwd.getpwuid(int(entry.name)).pw_name
-        except KeyError:
-            continue
+    for entry, name in sessions:
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = str(entry)
         env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={entry}/bus"
@@ -271,8 +269,29 @@ def force_analog_output() -> None:
             log.info("analoge uitgang gezet voor %s: %s", name, shown)
             return
         detail = result.stderr.strip() if result is not None else "niet gestart"
-        log.warning("analoge uitgang voor %s mislukt: %s", name, detail)
+        log.info("analoge uitgang voor %s niet gezet: %s", name, detail)
     log.info("afspelen gaat toch naar de koptelefoonkaart")
+
+
+def _sound_sessions(run_user: Path = Path("/run/user")) -> list[tuple[Path, str]]:
+    """Gebruikers met een PipeWire- of Pulse-socket in /run/user/UID."""
+
+    found: list[tuple[Path, str]] = []
+    try:
+        entries = sorted(run_user.iterdir())
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        if not ((entry / "pulse" / "native").exists() or (entry / "pipewire-0").exists()):
+            continue
+        try:
+            name = pwd.getpwuid(int(entry.name)).pw_name
+        except KeyError:
+            continue
+        found.append((entry, name))
+    return found
 
 
 def set_fixed_volume() -> None:
@@ -347,6 +366,109 @@ LGPIO_HINT = (
     "(of: sudo bash /boot/firmware/pi-speler/install.sh). "
     "Nieuwere kernels (Trixie) hebben geen /sys/class/gpio meer."
 )
+
+
+class PressDetector:
+    """Eigen drukdetectie voor één fragmentknop, op het niveau van de pin.
+
+    Elk laag niveau (knop naar massa) telt als druk, ook als de vorige
+    losgelaten-flank nooit binnenkwam. Zo speelt dezelfde knop altijd opnieuw.
+    Dender: binnen debounce na de vorige druk, of binnen guard na het
+    loslaten, telt niet.
+    """
+
+    def __init__(
+        self,
+        on_press: Callable[[], None],
+        *,
+        debounce: float = FRAGMENT_DEBOUNCE_S,
+        guard: float = RELEASE_GUARD_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._on_press = on_press
+        self._debounce = debounce
+        self._guard = guard
+        self._clock = clock
+        self._last_press: float | None = None
+        self._last_release: float | None = None
+        self._lock = threading.Lock()
+
+    def on_level(self, _ticks: object = None, state: object = 0) -> None:
+        try:
+            level = int(state)
+        except (TypeError, ValueError):
+            return
+        if level not in (0, 1):
+            # lgpio meldt 2 bij een watchdog: geen flank.
+            return
+        now = self._clock()
+        with self._lock:
+            if level == 1:
+                self._last_release = now
+                return
+            if self._last_release is not None and now - self._last_release < self._guard:
+                return
+            if self._last_press is not None and now - self._last_press < self._debounce:
+                return
+            self._last_press = now
+        try:
+            self._on_press()
+        except Exception:
+            log.exception("druk verwerken mislukt")
+
+
+class PressWorker:
+    """Voert drukken uit in één eigen draad, in volgorde.
+
+    De GPIO-draad wacht dan nooit op aplay; geen druk gaat verloren.
+    """
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._thread = threading.Thread(target=self._run, name="knoppen", daemon=True)
+        self._thread.start()
+
+    def submit(self, action: Callable[[], None]) -> None:
+        self._queue.put(action)
+
+    def _run(self) -> None:
+        while True:
+            action = self._queue.get()
+            try:
+                action()
+            except Exception:
+                log.exception("knop faalde; de speler blijft lopen")
+            finally:
+                self._queue.task_done()
+
+    def join(self, timeout: float = 2.0) -> None:
+        """Voor de tests: wacht tot alle drukken verwerkt zijn."""
+
+        deadline = time.monotonic() + timeout
+        while self._queue.unfinished_tasks and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+
+def attach_fragment_button(button: object, press: Callable[[], None], keep: list[object]) -> str:
+    """Hangt de eigen detectie aan de pin. Lukt dat niet: gewoon when_pressed."""
+
+    detector = PressDetector(press)
+    pin = getattr(button, "pin", None)
+    if pin is not None:
+        try:
+            # gpiozero houdt maar een zwakke verwijzing: keep houdt hem levend.
+            pin.when_changed = detector.on_level
+            keep.append(detector)
+            return "pin"
+        except Exception:
+            log.exception("eigen drukdetectie niet gezet; gpiozero when_pressed")
+
+    def on_press(*_args: object) -> None:
+        press()
+
+    button.when_pressed = on_press
+    keep.append(on_press)
+    return "when_pressed"
 
 
 LG_WD_DEFAULT = "/run/pi-speler"
@@ -433,6 +555,8 @@ def serve_gpio(player: Player) -> None:
         return
 
     held: list[Button] = []
+    keep: list[object] = []
+    worker = PressWorker()
     failed_once = False
 
     def report(what: str) -> None:
@@ -446,15 +570,16 @@ def serve_gpio(player: Player) -> None:
 
     for spec in BUTTONS:
         try:
-            button = Button(spec.bcm, **BUTTON_KWARGS)
+            button = Button(spec.bcm, **FRAGMENT_BUTTON_KWARGS)
         except Exception:
             report(f"knop {spec.version} {spec.language} bcm={spec.bcm} pin={spec.header_pin}")
             continue
 
-        def on_press(*_args: object, chosen: ButtonSpec = spec) -> None:
-            player.press_button(chosen)
+        def on_press(chosen: ButtonSpec = spec) -> None:
+            # Elke druk: wat speelt stopt, dit fragment begint vooraan. Ook dezelfde knop.
+            worker.submit(lambda: player.press_button(chosen))
 
-        button.when_pressed = on_press
+        attach_fragment_button(button, on_press, keep)
         held.append(button)
     for spec in CONTROLS:
         try:
@@ -463,13 +588,17 @@ def serve_gpio(player: Player) -> None:
             report(f"knop {spec.action} bcm={spec.bcm} pin={spec.header_pin}")
             continue
 
-        def on_control(*_args: object, chosen: ControlSpec = spec) -> None:
+        def run_control(chosen: ControlSpec) -> None:
             if chosen.action == "gids":
                 player.guide()
             elif chosen.action == "stop":
                 player.stop()
             elif chosen.action == "config":
                 player.configure()
+
+        def on_control(*_args: object, chosen: ControlSpec = spec) -> None:
+            # Zelfde draad als de fragmentknoppen: de volgorde van drukken blijft.
+            worker.submit(lambda: run_control(chosen))
 
         button.when_pressed = on_control
         held.append(button)

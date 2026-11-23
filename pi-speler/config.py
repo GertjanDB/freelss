@@ -21,6 +21,15 @@ BOUNCE_TIME = 0.04
 # Actief laag: interne pull-up, knop naar GND. when_pressed is de vallende flank.
 BUTTON_KWARGS = {"pull_up": True, "bounce_time": BOUNCE_TIME}
 
+# Fragmentknoppen (A/B, NL/FR/EN): elke druk speelt opnieuw, ook dezelfde knop.
+# Geen debounce in lgpio: die kan een losgelaten-flank inslikken, en dan ziet
+# gpiozero de volgende druk van dezelfde knop niet. We tellen zelf:
+# een druk telt als hij 80 ms na de vorige komt, en niet binnen 30 ms
+# na het loslaten (dat is dender van het loslaten).
+FRAGMENT_BUTTON_KWARGS = {"pull_up": True, "bounce_time": None}
+FRAGMENT_DEBOUNCE_S = 0.08
+RELEASE_GUARD_S = 0.03
+
 # PipeWire-sink van de analoge 3,5 mm-jack op een Pi 4 met Bookworm.
 # HDMI heeft een andere naam (platform-...hdmi...) en wordt hier niet gezet.
 ANALOG_SINK = "alsa_output.platform-bcm2835_audio.stereo-fallback"
