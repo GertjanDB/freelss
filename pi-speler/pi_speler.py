@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import pwd
+import shutil
 import signal
 import subprocess
 import sys
@@ -241,6 +242,10 @@ def force_analog_output() -> None:
 
     command = force_analog_command()
     shown = " ".join(command)
+    if shutil.which(command[0]) is None:
+        # Lite heeft geen PipeWire/pactl. aplay gaat rechtstreeks naar de kaart.
+        log.info("geen pactl; afspelen gaat rechtstreeks naar %s", APLAY_DEVICE)
+        return
     result = _run_command(command)
     if result is not None and result.returncode == 0:
         log.info("analoge uitgang gezet: %s", shown)
@@ -332,7 +337,6 @@ def wait_for_headphone_card(timeout: float = HEADPHONE_WAIT_S) -> None:
 
 def prepare_analog_output() -> None:
     log.info("afspelen met: aplay -D %s", APLAY_DEVICE)
-    log.info("pipewire-standaard: %s", " ".join(force_analog_command()))
     wait_for_headphone_card()
     force_analog_output()
     set_fixed_volume()
@@ -343,6 +347,32 @@ LGPIO_HINT = (
     "(of: sudo bash /boot/firmware/pi-speler/install.sh). "
     "Nieuwere kernels (Trixie) hebben geen /sys/class/gpio meer."
 )
+
+
+LG_WD_DEFAULT = "/run/pi-speler"
+
+
+def prepare_lgpio_dir(default: str = LG_WD_DEFAULT) -> str | None:
+    """lgpio maakt .lgd-nfy*-pijpjes in de werkmap. Dat kan niet op FAT.
+
+    Zet LG_WD (als die leeg is) en ga daar naartoe. Lukt het niet, dan /tmp.
+    """
+
+    candidates = [os.environ.get("LG_WD", "").strip(), default, "/tmp"]
+    for folder in candidates:
+        if not folder:
+            continue
+        try:
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            os.chdir(folder)
+        except OSError as exc:
+            log.warning("werkmap %s niet bruikbaar: %s", folder, exc)
+            continue
+        os.environ["LG_WD"] = folder
+        log.info("lgpio-werkmap %s", folder)
+        return folder
+    log.error("geen werkmap voor lgpio; knoppen kunnen falen")
+    return None
 
 
 def choose_pin_factory() -> str:
@@ -362,6 +392,17 @@ def choose_pin_factory() -> str:
             log.error("lgpio ontbreekt; gpiozero zoekt zelf een pin-factory. %s", LGPIO_HINT)
             os.environ.pop("GPIOZERO_PIN_FACTORY", None)
             return "automatisch"
+        except Exception as exc:
+            # Bijvoorbeeld: werkmap op FAT, .lgd-nfy-pijpje niet gemaakt.
+            log.error(
+                "lgpio start niet (%s: %s); gpiozero zoekt zelf. "
+                "Tip: LG_WD=/run/pi-speler en WorkingDirectory=/run/pi-speler in de service, "
+                "of sudo bash /boot/firmware/pi-speler/install.sh",
+                type(exc).__name__,
+                exc,
+            )
+            os.environ.pop("GPIOZERO_PIN_FACTORY", None)
+            return "automatisch"
     os.environ["GPIOZERO_PIN_FACTORY"] = chosen
     return chosen
 
@@ -375,11 +416,15 @@ def _wait_forever() -> None:
 
 
 def serve_gpio(player: Player) -> None:
-    wanted = choose_pin_factory()
+    try:
+        wanted = choose_pin_factory()
+    except Exception:
+        log.exception("pin-factory kiezen mislukt; gpiozero zoekt zelf")
+        wanted = "automatisch"
     log.info("pin-factory gevraagd: %s", wanted)
     try:
         from gpiozero import Button
-    except ImportError:
+    except Exception:
         log.error(
             "gpiozero ontbreekt. Op de Pi: sudo apt install python3-gpiozero python3-lgpio. "
             "Zonder pinnen: PI_SPELER_BENCH=1 python3 pi_speler.py"
@@ -512,7 +557,16 @@ def main(argv: list[str] | None = None) -> int:
                 player.start_startup(startup_specs(), APLAY_DEVICE)
             else:
                 log.info("opstartreeks uit")
-            serve_gpio(player)
+            try:
+                prepare_lgpio_dir()
+            except Exception:
+                log.exception("lgpio-werkmap niet gezet")
+            try:
+                serve_gpio(player)
+            except Exception:
+                # GPIO mag de speler nooit in een herstartlus duwen.
+                log.exception("knoppen faalden; de speler blijft lopen. %s", LGPIO_HINT)
+                _wait_forever()
     finally:
         player.close()
         try:

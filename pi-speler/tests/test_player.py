@@ -1121,6 +1121,70 @@ class PinFactoryTests(unittest.TestCase):
         pause.assert_called_once()
 
 
+class LgpioCrashTests(unittest.TestCase):
+    def test_lgpio_crash_on_import_is_caught(self) -> None:
+        real_import = __import__
+
+        def broken(name, *args, **kwargs):
+            if name == "lgpio":
+                raise FileNotFoundError(2, "No such file or directory", ".lgd-nfy-3")
+            return real_import(name, *args, **kwargs)
+
+        with (
+            unittest.mock.patch.dict(os.environ, {"GPIOZERO_PIN_FACTORY": "lgpio"}),
+            unittest.mock.patch("builtins.__import__", side_effect=broken),
+            self.assertLogs("pi-speler", level="ERROR") as logs,
+        ):
+            self.assertEqual(choose_pin_factory(), "automatisch")
+            self.assertNotIn("GPIOZERO_PIN_FACTORY", os.environ)
+        text = "\n".join(logs.output)
+        self.assertIn("lgpio start niet", text)
+        self.assertIn("LG_WD", text)
+
+    def test_any_factory_error_keeps_the_player_running(self) -> None:
+        pause = unittest.mock.Mock()
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), APLAY_DEVICE)
+        player = Player(StubLibrary.__new__(StubLibrary), Playback(FakeBackend()), route)
+        with (
+            unittest.mock.patch.object(pi_speler, "choose_pin_factory", side_effect=RuntimeError("kapot")),
+            unittest.mock.patch.dict(sys.modules, {"gpiozero": fake_gpiozero(fail=True)}),
+            unittest.mock.patch.object(pi_speler.signal, "pause", pause),
+            self.assertLogs("pi-speler", level="ERROR"),
+        ):
+            pi_speler.serve_gpio(player)
+        pause.assert_called_once()
+
+    def test_lgpio_work_dir_is_set_and_entered(self) -> None:
+        start = os.getcwd()
+        self.addCleanup(os.chdir, start)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve() / "run" / "pi-speler"
+            with unittest.mock.patch.dict(os.environ, {"LG_WD": ""}):
+                self.assertEqual(pi_speler.prepare_lgpio_dir(str(target)), str(target))
+                self.assertEqual(os.environ["LG_WD"], str(target))
+                self.assertEqual(Path(os.getcwd()).resolve(), target)
+            os.chdir(start)
+            blocker = Path(tmp) / "bestand"
+            blocker.write_text("x", encoding="utf-8")
+            with unittest.mock.patch.dict(os.environ, {"LG_WD": str(blocker)}):
+                chosen = pi_speler.prepare_lgpio_dir(str(blocker))
+                self.assertEqual(chosen, "/tmp")
+                self.assertEqual(os.environ["LG_WD"], "/tmp")
+            os.chdir(start)
+
+    def test_missing_pactl_is_skipped_quietly(self) -> None:
+        run = unittest.mock.Mock()
+        with (
+            unittest.mock.patch.object(pi_speler.shutil, "which", return_value=None),
+            unittest.mock.patch.object(pi_speler, "_run_command", run),
+            self.assertLogs("pi-speler", level="INFO") as logs,
+        ):
+            pi_speler.force_analog_output()
+        run.assert_not_called()
+        self.assertFalse([line for line in logs.output if line.startswith("WARNING")])
+        self.assertIn("geen pactl", "\n".join(logs.output))
+
+
 class InstallFileTests(unittest.TestCase):
     def test_service_starts_after_sound_and_restarts(self) -> None:
         text = (ROOT / "pi-speler.service").read_text(encoding="utf-8")
@@ -1132,9 +1196,16 @@ class InstallFileTests(unittest.TestCase):
         self.assertIn("User=root", text)
         self.assertIn("Environment=GPIOZERO_PIN_FACTORY=lgpio", text)
         install_text = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn("apt-get install -y python3-lgpio", install_text)
+        self.assertIn('"${APT[@]}" install -y python3-lgpio', install_text)
         self.assertIn("python3-rpi-lgpio", install_text)
-        self.assertIn("python3-lgpio", (ROOT / "start.sh").read_text(encoding="utf-8"))
+        self.assertIn("DPkg::Lock::Timeout=120", install_text)
+        start = (ROOT / "start.sh").read_text(encoding="utf-8")
+        # Geen apt bij elke start: dat hield het dpkg-slot vast.
+        self.assertNotIn("apt-get", start)
+        self.assertIn("LG_WD", start)
+        self.assertIn("RuntimeDirectory=pi-speler", text)
+        self.assertIn("WorkingDirectory=/run/pi-speler", text)
+        self.assertIn("Environment=LG_WD=/run/pi-speler", text)
         klaar = (ROOT / "sd" / "zet-klaar.sh").read_text(encoding="utf-8")
         self.assertEqual(klaar.count("led.py"), 2)
         self.assertEqual(klaar.count("toegang.sh"), 2)

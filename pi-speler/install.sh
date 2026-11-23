@@ -6,6 +6,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
+# Wacht tot een andere apt klaar is in plaats van meteen te falen.
+APT=(apt-get -o DPkg::Lock::Timeout=120)
 
 if [[ "$(id -u)" -eq 0 ]]; then
   SUDO=()
@@ -13,17 +15,18 @@ else
   SUDO=(sudo)
 fi
 
-if ! "${SUDO[@]}" apt-get update \
-  || ! "${SUDO[@]}" apt-get install -y python3-gpiozero alsa-utils pulseaudio-utils; then
+if ! "${SUDO[@]}" "${APT[@]}" update \
+  || ! "${SUDO[@]}" "${APT[@]}" install -y python3-gpiozero alsa-utils pulseaudio-utils; then
   echo "pi-speler: pakketten niet bijgewerkt. Bestaande python3, gpiozero en aplay blijven gelden." >&2
 fi
 
 # lgpio: gpiozero heeft dit nodig op Trixie (geen /sys/class/gpio meer).
 # python3-rpi-lgpio alleen als python3-lgpio niet bestaat.
-if ! /usr/bin/python3 -c "import lgpio" 2>/dev/null; then
-  if ! "${SUDO[@]}" apt-get install -y python3-lgpio; then
+# Alleen hier pakketten; start.sh installeert niets.
+if ! dpkg -s python3-lgpio >/dev/null 2>&1; then
+  if ! "${SUDO[@]}" "${APT[@]}" install -y python3-lgpio; then
     if apt-cache show python3-rpi-lgpio >/dev/null 2>&1; then
-      "${SUDO[@]}" apt-get install -y python3-rpi-lgpio \
+      "${SUDO[@]}" "${APT[@]}" install -y python3-rpi-lgpio \
         || echo "pi-speler: python3-rpi-lgpio niet geïnstalleerd." >&2
     else
       echo "pi-speler: python3-lgpio niet geïnstalleerd. Knoppen werken dan niet op Trixie." >&2
