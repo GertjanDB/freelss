@@ -21,7 +21,7 @@ log = logging.getLogger("pi-speler")
 class Backend(Protocol):
     def stop(self) -> None: ...
 
-    def play(self, path: Path) -> None: ...
+    def play(self, path: Path) -> bool | None: ...
 
 
 def aplay_command(device: str, path: Path) -> list[str]:
@@ -227,14 +227,26 @@ class AplayBackend:
             return
         self.play(path)
 
-    def play(self, path: Path) -> None:
+    def is_playing(self) -> bool:
+        with self._lock:
+            proc = self._proc
+        return proc is not None and proc.poll() is None
+
+    def play(self, path: Path, device: str | None = None) -> bool:
+        """True als aplay draait. False als de gekozen uitgang ontbreekt.
+
+        device dwingt één apparaat af (de opstartreeks op de jack).
+        Zonder device geldt de gewone keuze: standaard of gids.
+        """
+
         # Ook als de aanroeper het vergeet: nooit twee bestanden tegelijk.
         self._path = path
         self.stop()
-        device = self.output_device()
+        if device is None:
+            device = self.output_device()
         if device is None:
             # Gekozen uitgang ontbreekt: stil blijven, led uit, knoppen blijven werken.
-            return
+            return False
         try:
             proc = subprocess.Popen(
                 aplay_command(device, path),
@@ -254,6 +266,7 @@ class AplayBackend:
             name="aplay-watch",
             daemon=True,
         ).start()
+        return True
 
     def _watch(self, proc: subprocess.Popen[bytes]) -> None:
         err = b""
@@ -285,19 +298,34 @@ class Playback:
         self._backend = backend
         self._lock = threading.Lock()
 
-    def press(self, path: Path) -> None:
+    def press(self, path: Path, device: str | None = None) -> bool:
+        """True als het fragment begon te spelen. device: zie AplayBackend.play."""
+
         with self._lock:
             self._stop_quiet()
             if not path.is_file():
                 log.error("bestand ontbreekt: %s", path)
-                return
+                return False
             if not valid_wav(path):
                 log.error("ongeldig wav-bestand: %s", path)
-                return
+                return False
             try:
-                self._backend.play(path)
+                if device is None:
+                    return self._backend.play(path) is not False
+                return self._backend.play(path, device=device) is not False
             except Exception:
                 log.exception("afspelen mislukt: %s", path)
+                return False
+
+    def is_playing(self) -> bool:
+        check = getattr(self._backend, "is_playing", None)
+        if check is None:
+            return False
+        try:
+            return bool(check())
+        except Exception:
+            log.exception("afspeelstatus onbekend")
+            return False
 
     def stop(self) -> None:
         with self._lock:

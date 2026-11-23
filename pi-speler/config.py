@@ -32,6 +32,13 @@ APLAY_DEVICE = "plughw:CARD=Headphones,DEV=0"
 # Seconden aan, dan evenveel uit. Uitzetten: PI_SPELER_LED=uit.
 LED_BLINK_S = 0.25
 
+# Bij elke start van de speler: A Nederlands, A Frans, A Engels na elkaar,
+# één keer, altijd op de mini-jack. Een knop breekt de reeks af.
+# Uitzetten: OPSTART = False, of PI_SPELER_OPSTART=uit.
+OPSTART = True
+# Stilte tussen twee fragmenten van de reeks, in seconden.
+OPSTART_PAUZE_S = 0.3
+
 # usb of jack. De geheime config-pin draait dit om. Blijft staan na een herstart.
 STATE_PATH = Path("/var/lib/pi-speler/standaard")
 

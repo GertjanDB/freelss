@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
 from led import ActLed, NoLed, current_trigger, find_led, open_led
+from pi_speler import Player, startup_enabled, startup_specs
 from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
@@ -675,6 +676,142 @@ class NoFallbackTests(unittest.TestCase):
                 playback.press(wav)
                 playback.stop()
                 playback.press(wav)
+
+
+class TimedBackend:
+    """Speelt 'seconds' lang, of tot stop. Onthoudt welk apparaat."""
+
+    def __init__(self, seconds: float = 0.05, refuse: bool = False) -> None:
+        self.seconds = seconds
+        self.refuse = refuse
+        self.events: list[tuple[str, str, str | None]] = []
+        self._until = 0.0
+        self._lock = threading.Lock()
+
+    def stop(self) -> None:
+        with self._lock:
+            if self._until:
+                self.events.append(("stop", "", None))
+            self._until = 0.0
+
+    def play(self, path: Path, device: str | None = None) -> bool:
+        with self._lock:
+            self.events.append(("play", Path(path).name, device))
+            if self.refuse:
+                return False
+            self._until = time.monotonic() + self.seconds
+            return True
+
+    def is_playing(self) -> bool:
+        with self._lock:
+            return time.monotonic() < self._until
+
+    def plays(self) -> list[tuple[str, str | None]]:
+        with self._lock:
+            return [(name, device) for kind, name, device in self.events if kind == "play"]
+
+
+class StubLibrary:
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+        for name in FILE_NAMES.values():
+            write_wav(folder / name)
+
+    def wav_for(self, spec) -> Path:
+        return spec.wav_path(self.folder)
+
+
+class StartupTests(unittest.TestCase):
+    JACK = APLAY_DEVICE
+
+    def make(self, backend: TimedBackend) -> Player:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        route = OutputRoute(Path(tmp.name) / "standaard", self.JACK)
+        return Player(StubLibrary(Path(tmp.name) / "audio"), Playback(backend), route)
+
+    def test_three_a_clips_in_order_on_the_jack_then_default(self) -> None:
+        self.assertEqual(
+            [(s.version, s.language) for s in startup_specs()],
+            [("a", "nl"), ("a", "fr"), ("a", "en")],
+        )
+        backend = TimedBackend(0.05)
+        player = self.make(backend)
+        thread = player.start_startup(startup_specs(), self.JACK, pause=0.01)
+        thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(
+            backend.plays(),
+            [
+                ("a-nederlands.wav", self.JACK),
+                ("a-frans.wav", self.JACK),
+                ("a-engels.wav", self.JACK),
+            ],
+        )
+        # Daarna: gewone keuze (standaard USB), geen afgedwongen jack.
+        player.press_button(BUTTONS[3])
+        self.assertEqual(backend.plays()[-1], ("b-nederlands.wav", None))
+
+    def test_any_button_cancels_the_rest(self) -> None:
+        for action in ("knop", "stop", "gids"):
+            backend = TimedBackend(0.3)
+            player = self.make(backend)
+            thread = player.start_startup(startup_specs(), self.JACK, pause=0.01)
+            self.assertTrue(wait_until(lambda: backend.plays() != []))
+            if action == "knop":
+                player.press_button(BUTTONS[5])
+            elif action == "stop":
+                player.stop()
+            else:
+                player.guide()
+            thread.join(2)
+            self.assertFalse(thread.is_alive(), action)
+            names = [name for name, _device in backend.plays()]
+            self.assertEqual(names[0], "a-nederlands.wav", action)
+            self.assertNotIn("a-frans.wav", names, action)
+            self.assertNotIn("a-engels.wav", names, action)
+            if action == "knop":
+                self.assertEqual(backend.plays()[-1], ("b-engels.wav", None))
+
+    def test_sequence_stops_when_a_clip_cannot_start(self) -> None:
+        backend = TimedBackend(refuse=True)
+        player = self.make(backend)
+        with self.assertLogs("pi-speler", level="ERROR"):
+            thread = player.start_startup(startup_specs(), self.JACK, pause=0.01)
+            thread.join(2)
+        self.assertEqual(len(backend.plays()), 1)
+
+    def test_switch_and_bench(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"PI_SPELER_OPSTART": ""}):
+            self.assertTrue(startup_enabled(False))
+            self.assertFalse(startup_enabled(True))
+        with unittest.mock.patch.dict(os.environ, {"PI_SPELER_OPSTART": "uit"}):
+            self.assertFalse(startup_enabled(False))
+
+    def test_forced_jack_plays_even_without_usb_amp(self) -> None:
+        listed = unittest.mock.Mock(
+            stdout="card 0: Headphones [bcm2835 Headphones], device 0: x\n",
+            stderr="",
+            returncode=0,
+        )
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), self.JACK)
+        led = RecordingLed()
+        backend = AplayBackend(self.JACK, follow_cards=True, route=route, led=led)
+        self.addCleanup(backend.stop)
+        FakeProc.spawned = []
+        with (
+            unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+            unittest.mock.patch("playback.subprocess.run", return_value=listed),
+        ):
+            self.assertTrue(backend.play(Path("audio/a-nederlands.wav"), device=self.JACK))
+            self.assertTrue(backend.is_playing())
+            self.assertEqual(FakeProc.spawned[0].cmd[2], self.JACK)
+            self.assertEqual(led.events[-1], "blink")
+            # Gewone druk zonder versterker: stil, geen wissel naar de jack.
+            with self.assertLogs("pi-speler", level="ERROR"):
+                self.assertFalse(backend.play(Path("audio/a-frans.wav")))
+            self.assertEqual(len(FakeProc.spawned), 1)
+            self.assertFalse(backend.is_playing())
 
 
 class InstallFileTests(unittest.TestCase):

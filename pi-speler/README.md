@@ -48,6 +48,8 @@ Standaard gaat een fragment altijd naar de Audiophony, met een USB-datakabel aan
 
 De knoppen doen het ook 's nachts. De Pi blijft aan en herstart niet op een klok. Komt de stroom terug, dan start hij en blijft hij aan. Stopt de speler met een fout, dan start de service hem opnieuw.
 
+Bij elke start van de Pi speelt de speler één keer A Nederlands, A Frans en A Engels na elkaar. Dat gaat altijd naar de mini-jack, ook als de standaard USB is. Een knop breekt de reeks af en doet gewoon wat hij moet doen. Daarna gaat alles weer naar de standaard. Uitzetten: `PI_SPELER_OPSTART=uit`, of `OPSTART = False` in `config.py`.
+
 ## Groene led
 
 De groene led op het bordje, naast de rode, knippert zolang er een fragment speelt. Geen draad nodig. Is het fragment gedaan, druk je op stop, of kapt een nieuwe knop het af, dan gaat hij uit. Een nieuw fragment laat hem meteen weer knipperen. Stopt de speler, dan doet de led weer wat de Pi gewoon doet: knipperen bij SD-gebruik.

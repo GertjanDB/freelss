@@ -14,13 +14,17 @@ import pwd
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Sequence
 
 from config import (
     APLAY_DEVICE,
     BUTTON_KWARGS,
     LED_BLINK_S,
+    OPSTART,
+    OPSTART_PAUZE_S,
     STATE_PATH,
     USB_MOUNT,
     force_analog_command,
@@ -64,13 +68,88 @@ def playback_device(bench: bool) -> str:
     return APLAY_DEVICE
 
 
+def startup_enabled(bench: bool) -> bool:
+    """Opstartreeks aan? Niet op de laptop. PI_SPELER_OPSTART=uit zet hem af."""
+
+    if bench:
+        return False
+    choice = os.environ.get("PI_SPELER_OPSTART", "").strip().lower()
+    if choice in {"0", "uit", "off", "nee", "no", "false"}:
+        return False
+    if choice in {"1", "aan", "on", "ja", "yes", "true"}:
+        return True
+    return OPSTART
+
+
+def startup_specs() -> list[ButtonSpec]:
+    """De drie A-knoppen in de volgorde van de header: Nederlands, Frans, Engels."""
+
+    return [spec for spec in BUTTONS if spec.version == "a"]
+
+
 class Player:
     def __init__(self, library: AudioLibrary, playback: Playback, route: OutputRoute) -> None:
         self._library = library
         self._playback = playback
         self._route = route
+        # Opstartreeks: elke knop zet dit, de reeks stopt dan.
+        self._startup_cancel = threading.Event()
+        self._startup_lock = threading.Lock()
+        self._startup_thread: threading.Thread | None = None
+
+    def _cancel_startup(self) -> None:
+        thread = self._startup_thread
+        if thread is None or not thread.is_alive() or self._startup_cancel.is_set():
+            return
+        self._startup_cancel.set()
+        log.info("opstartreeks afgebroken door een knop")
+        # Wacht tot een fragment van de reeks dat net start, gestart is.
+        # Zo wint de knop altijd.
+        with self._startup_lock:
+            pass
+
+    def start_startup(
+        self,
+        specs: Sequence[ButtonSpec],
+        device: str,
+        pause: float = OPSTART_PAUZE_S,
+    ) -> threading.Thread:
+        """Speelt specs na elkaar op device, in een eigen draad. Knoppen blijven luisteren."""
+
+        thread = threading.Thread(
+            target=self._run_startup,
+            args=(list(specs), device, pause),
+            name="opstart",
+            daemon=True,
+        )
+        self._startup_thread = thread
+        thread.start()
+        return thread
+
+    def _run_startup(self, specs: list[ButtonSpec], device: str, pause: float) -> None:
+        try:
+            log.info("opstartreeks op de jack: %s", ", ".join(f"{s.version} {s.language}" for s in specs))
+            for index, spec in enumerate(specs):
+                if index and self._startup_cancel.wait(pause):
+                    return
+                with self._startup_lock:
+                    if self._startup_cancel.is_set():
+                        return
+                    path = self._library.wav_for(spec)
+                    log.info("opstart %s %s -> %s", spec.version, spec.language, path)
+                    started = self._playback.press(path, device=device)
+                if not started:
+                    log.error("opstartreeks: %s %s speelde niet; reeks overgeslagen", spec.version, spec.language)
+                    return
+                while self._playback.is_playing():
+                    if self._startup_cancel.wait(0.05):
+                        return
+            log.info("opstartreeks klaar; knoppen gebruiken de standaard")
+        except Exception:
+            log.exception("opstartreeks faalde; de knoppen werken gewoon")
 
     def press_button(self, spec: ButtonSpec) -> None:
+        self._cancel_startup()
         try:
             path = self._library.wav_for(spec)
             log.info(
@@ -90,6 +169,7 @@ class Player:
             )
 
     def stop(self) -> None:
+        self._cancel_startup()
         try:
             log.info("stop")
             self._playback.stop()
@@ -97,6 +177,7 @@ class Player:
             log.exception("stoppen mislukt")
 
     def guide(self) -> None:
+        self._cancel_startup()
         try:
             via = self._route.toggle_guide()
             log.info("gids %s", via)
@@ -105,6 +186,7 @@ class Player:
             log.exception("gids faalde; de speler blijft lopen")
 
     def configure(self) -> None:
+        self._cancel_startup()
         try:
             choice = self._route.toggle_default()
             log.info("standaard %s", choice)
@@ -113,6 +195,7 @@ class Player:
             log.exception("config faalde; de speler blijft lopen")
 
     def close(self) -> None:
+        self._startup_cancel.set()
         try:
             self._playback.stop()
         except Exception:
@@ -380,6 +463,11 @@ def main(argv: list[str] | None = None) -> int:
                 prepare_analog_output()
             except Exception:
                 log.exception("audio-voorbereiding mislukt; knoppen gaan toch aan")
+            if startup_enabled(bench):
+                # Altijd de mini-jack, ook als de standaard USB is. Daarna weer de standaard.
+                player.start_startup(startup_specs(), APLAY_DEVICE)
+            else:
+                log.info("opstartreeks uit")
             serve_gpio(player)
     finally:
         player.close()
