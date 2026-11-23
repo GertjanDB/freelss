@@ -3,7 +3,20 @@
 # Draait op de Mac. Wist de SD-kaart die nu als /Volumes/boot of
 # /Volumes/bootfs zichtbaar is, en zet er een nieuwe Raspberry Pi OS op
 # met de speler en de zes fragmenten.
+#   ./nieuw-systeem.sh          alleen de speler
+#   ./nieuw-systeem.sh --wifi   ook wifi van deze Mac, een gebruiker en ssh
 set -euo pipefail
+
+EXTRA=()
+for arg in "$@"; do
+  case "$arg" in
+    --wifi) EXTRA=(--wifi) ;;
+    *)
+      echo "gebruik: $0 [--wifi]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URL="https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
@@ -102,10 +115,10 @@ while [[ "$i" -lt 24 ]]; do
 done
 if [[ -z "$newmount" ]]; then
   echo "Het systeem staat op de kaart. Haal hem eruit, steek hem opnieuw in, en draai dan:" >&2
-  echo "  $HERE/zet-klaar.sh --boot /Volumes/bootfs" >&2
+  echo "  $HERE/zet-klaar.sh --boot /Volumes/bootfs ${EXTRA[*]:-}" >&2
   exit 1
 fi
 
-"$HERE/zet-klaar.sh" --boot "$newmount"
+"$HERE/zet-klaar.sh" --boot "$newmount" ${EXTRA[@]+"${EXTRA[@]}"}
 echo "Klaar. Werp de schijf uit en zet de kaart in de Pi."
 echo "De eerste start duurt een minuut. De Pi start zichzelf één keer opnieuw. Daarna doet een knop het geluid."

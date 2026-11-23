@@ -86,6 +86,29 @@ Op Linux, met de tweede partitie erbij, hoeft die regel niet:
 pi-speler/sd/zet-klaar.sh --boot /mnt/boot --root /mnt/root
 ```
 
+## Inloggen via wifi
+
+Wil je zien wat de Pi doet, zet dan wifi, een gebruiker en ssh op de kaart. Pi uit, kaart in de Mac:
+
+```bash
+cd ~/freelss
+git pull
+pi-speler/sd/zet-klaar.sh --boot /Volumes/bootfs --wifi
+```
+
+Het script neemt het wifi-netwerk van de Mac. De Mac verbergt soms de naam; dan stelt het script een bekend netwerk voor of typ je hem zelf. Het wifi-wachtwoord komt uit de sleutelhanger. De Mac vraagt daarvoor je toestemming of je wachtwoord. Lukt dat niet, dan typ je het. Daarna vraagt het een gebruikersnaam (Enter = `gertjan`) en twee keer een wachtwoord. Je ziet niets als je typt.
+
+Op de kaart komt geen leesbaar wachtwoord: alleen een hash en een wifi-sleutel. De Pi zet ze bij de start in het systeem, wist ze van de kaart en start één keer opnieuw. Ook bij een nieuwe kaart: `pi-speler/sd/nieuw-systeem.sh --wifi`.
+
+Daarna, op de Mac, in hetzelfde netwerk:
+
+```bash
+ssh gertjan@pi-speler.local
+journalctl -u pi-speler -f
+```
+
+Alleen WPA2 of WPA2/WPA3 samen. Een netwerk met alleen WPA3 werkt zo niet.
+
 ## Zonder knoppen
 
 ```bash

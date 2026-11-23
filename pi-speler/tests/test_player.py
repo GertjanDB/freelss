@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -814,6 +817,223 @@ class StartupTests(unittest.TestCase):
             self.assertFalse(backend.is_playing())
 
 
+# Alleen nepwaarden. Echte wachtwoorden horen niet in tests.
+FAKE_SSID = "TestNet"
+FAKE_WIFI_PW = "nep-wifi-wachtwoord-123"
+FAKE_USER_PW = "nep-gebruiker-wachtwoord"
+
+
+def write_stub(folder: Path, name: str, body: str) -> None:
+    path = folder / name
+    path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
+def openssl_sha512_works() -> bool:
+    try:
+        out = subprocess.run(
+            ["openssl", "passwd", "-6", "-stdin"],
+            input="x\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except OSError:
+        return False
+    return out.startswith("$6$")
+
+
+def all_card_text(folder: Path) -> str:
+    parts = []
+    for path in folder.rglob("*"):
+        if path.is_file():
+            parts.append(path.read_bytes().decode("utf-8", "replace"))
+    return "\n".join(parts)
+
+
+@unittest.skipUnless(shutil.which("bash") and openssl_sha512_works(), "bash en openssl passwd -6 nodig")
+class WifiSetupTests(unittest.TestCase):
+    def make_card(self, base: Path) -> Path:
+        boot = base / "bootfs"
+        boot.mkdir()
+        (boot / "config.txt").write_text("auto_initramfs=1\n", encoding="utf-8")
+        (boot / "cmdline.txt").write_text("console=tty1 root=PARTUUID=1234-02 rootwait\n", encoding="utf-8")
+        return boot
+
+    def stubs(self, base: Path, keychain: str | None) -> Path:
+        bin_dir = base / "bin"
+        bin_dir.mkdir()
+        write_stub(
+            bin_dir,
+            "networksetup",
+            'case "$1" in\n'
+            '  -listallhardwareports) printf "Hardware Port: Wi-Fi\\nDevice: en0\\n" ;;\n'
+            f'  -listpreferredwirelessnetworks) printf "Preferred networks on en0:\\n\\t{FAKE_SSID}\\n" ;;\n'
+            "esac",
+        )
+        write_stub(bin_dir, "ipconfig", 'echo "  SSID : <redacted>"')
+        if keychain is None:
+            write_stub(bin_dir, "security", "exit 44")
+        else:
+            write_stub(bin_dir, "security", f'printf "%s\\n" "{keychain}"')
+        return bin_dir
+
+    def run_script(self, base: Path, boot: Path, keychain: str | None, answers: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["PATH"] = f"{self.stubs(base, keychain)}{os.pathsep}{env.get('PATH', '')}"
+        return subprocess.run(
+            ["bash", str(ROOT / "sd" / "zet-klaar.sh"), "--boot", str(boot), "--wifi"],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+
+    def check_card(self, boot: Path, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 0, result.stderr)
+        access = boot / "pi-speler" / "toegang"
+        self.assertEqual((access / "hostnaam").read_text(encoding="utf-8").strip(), "pi-speler")
+        self.assertEqual((access / "land").read_text(encoding="utf-8").strip(), "BE")
+        user, hashed = (access / "gebruiker").read_text(encoding="utf-8").strip().split(":", 1)
+        self.assertEqual(user, "gertjan")
+        self.assertTrue(hashed.startswith("$6$"))
+        conn = (access / "wifi.nmconnection").read_text(encoding="utf-8")
+        self.assertIn(f"ssid={FAKE_SSID}\n", conn)
+        self.assertIn("key-mgmt=wpa-psk", conn)
+        psk = hashlib.pbkdf2_hmac("sha1", FAKE_WIFI_PW.encode(), FAKE_SSID.encode(), 4096, 32).hex()
+        self.assertIn(f"psk={psk}\n", conn)
+        self.assertTrue((boot / "ssh").is_file())
+        self.assertTrue((boot / "pi-speler" / "toegang.sh").is_file())
+        self.assertIn("systemd.run=/boot/firmware/pi-speler/eenmalig.sh", (boot / "cmdline.txt").read_text(encoding="utf-8"))
+        # Geen leesbaar wachtwoord op de kaart, op het scherm of in een fout.
+        card = all_card_text(boot)
+        shown = result.stdout + result.stderr
+        for secret in (FAKE_WIFI_PW, FAKE_USER_PW, hashed, psk):
+            self.assertNotIn(secret, shown)
+        for secret in (FAKE_WIFI_PW, FAKE_USER_PW):
+            self.assertNotIn(secret, card)
+        self.assertIn("pi-speler.local", shown)
+
+    def test_typed_wifi_password_when_keychain_has_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            boot = self.make_card(base)
+            answers = f"\n{FAKE_WIFI_PW}\n\n{FAKE_USER_PW}\n{FAKE_USER_PW}\n"
+            result = self.run_script(base, boot, None, answers)
+            self.check_card(boot, result)
+            self.assertIn(f"Enter = {FAKE_SSID}", result.stderr)
+
+    def test_keychain_password_is_used_without_asking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            boot = self.make_card(base)
+            answers = f"\n\n{FAKE_USER_PW}\n{FAKE_USER_PW}\n"
+            result = self.run_script(base, boot, FAKE_WIFI_PW, answers)
+            self.check_card(boot, result)
+            self.assertIn("gevonden", result.stderr)
+
+    def test_different_passwords_stop_without_secrets_on_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            boot = self.make_card(base)
+            answers = f"\n{FAKE_WIFI_PW}\n\n{FAKE_USER_PW}\nanders-wachtwoord\n"
+            result = self.run_script(base, boot, None, answers)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((boot / "pi-speler" / "toegang").exists())
+            self.assertNotIn("systemd.run", (boot / "cmdline.txt").read_text(encoding="utf-8"))
+            self.assertNotIn(FAKE_WIFI_PW, result.stdout + result.stderr)
+
+    def test_wifi_and_root_together_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            boot = self.make_card(base)
+            result = subprocess.run(
+                ["bash", str(ROOT / "sd" / "zet-klaar.sh"), "--boot", str(boot), "--root", str(base), "--wifi"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+
+@unittest.skipUnless(shutil.which("bash"), "bash nodig")
+class AccessOnPiTests(unittest.TestCase):
+    def test_access_folder_is_applied_and_wiped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            target = base / "systeem"
+            (target / "etc" / "cloud").mkdir(parents=True)
+            (target / "etc" / "hosts").write_text("127.0.0.1\tlocalhost\n127.0.1.1\t\traspberrypi\n", encoding="utf-8")
+            state = target / "var" / "lib" / "NetworkManager"
+            state.mkdir(parents=True)
+            (state / "NetworkManager.state").write_text("[main]\nNetworkingEnabled=true\nWirelessEnabled=false\n", encoding="utf-8")
+            rfkill = target / "var" / "lib" / "systemd" / "rfkill"
+            rfkill.mkdir(parents=True)
+            (rfkill / "platform-fe300000.mmcnr:wlan").write_text("1\n", encoding="utf-8")
+            firmware = target / "boot" / "firmware"
+            firmware.mkdir(parents=True)
+            (firmware / "cmdline.txt").write_text("console=tty1 root=PARTUUID=1234-02 rootwait\n", encoding="utf-8")
+
+            fake_hash = "$6$nepzout$nephash"
+            access = base / "toegang"
+            access.mkdir()
+            (access / "hostnaam").write_text("pi-speler\n", encoding="utf-8")
+            (access / "land").write_text("BE\n", encoding="utf-8")
+            (access / "gebruiker").write_text(f"gertjan:{fake_hash}\n", encoding="utf-8")
+            (access / "wifi.nmconnection").write_text("[connection]\nid=pi-speler-wifi\n", encoding="utf-8")
+
+            log_file = base / "opdrachten.log"
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            write_stub(bin_dir, "id", "exit 1")
+            write_stub(bin_dir, "getent", 'case "$2" in sudo|audio|gpio|video) exit 0 ;; esac\nexit 2')
+            write_stub(bin_dir, "useradd", f'echo "useradd $*" >>"{log_file}"')
+            write_stub(bin_dir, "chpasswd", f'echo "chpasswd $*" >>"{log_file}"; cat >"{base}/chpasswd.in"')
+            write_stub(bin_dir, "systemctl", f'echo "systemctl $*" >>"{log_file}"')
+            write_stub(bin_dir, "rfkill", f'echo "rfkill $*" >>"{log_file}"')
+            write_stub(bin_dir, "raspi-config", "exit 1")
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+            env["PI_SPELER_DOEL"] = str(target)
+            result = subprocess.run(
+                ["bash", str(ROOT / "toegang.sh"), str(access)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(fake_hash, result.stdout + result.stderr)
+            self.assertFalse(access.exists())
+
+            self.assertEqual((target / "etc" / "hostname").read_text(encoding="utf-8").strip(), "pi-speler")
+            hosts = (target / "etc" / "hosts").read_text(encoding="utf-8")
+            self.assertIn("127.0.1.1\tpi-speler", hosts)
+            self.assertNotIn("raspberrypi", hosts)
+            self.assertIn("preserve_hostname: true", (target / "etc" / "cloud" / "cloud.cfg.d" / "99-pi-speler.cfg").read_text(encoding="utf-8"))
+
+            commands = log_file.read_text(encoding="utf-8")
+            self.assertIn("useradd -m -s /bin/bash -G sudo,audio,video,gpio gertjan", commands)
+            self.assertNotIn(fake_hash, commands)
+            self.assertIn("chpasswd -e", commands)
+            self.assertEqual((base / "chpasswd.in").read_text(encoding="utf-8").strip(), f"gertjan:{fake_hash}")
+            self.assertIn("systemctl enable ssh", commands)
+            self.assertIn("rfkill unblock wifi", commands)
+
+            conn = target / "etc" / "NetworkManager" / "system-connections" / "pi-speler-wifi.nmconnection"
+            self.assertTrue(conn.is_file())
+            self.assertEqual(stat.S_IMODE(conn.stat().st_mode), 0o600)
+            self.assertIn("WirelessEnabled=true", (state / "NetworkManager.state").read_text(encoding="utf-8"))
+            self.assertEqual((rfkill / "platform-fe300000.mmcnr:wlan").read_text(encoding="utf-8").strip(), "0")
+            self.assertIn("cfg80211.ieee80211_regdom=BE", (firmware / "cmdline.txt").read_text(encoding="utf-8"))
+
+    def test_nothing_to_do_without_folder(self) -> None:
+        result = subprocess.run(["bash", str(ROOT / "toegang.sh"), "/bestaat/niet"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+
 class InstallFileTests(unittest.TestCase):
     def test_service_starts_after_sound_and_restarts(self) -> None:
         text = (ROOT / "pi-speler.service").read_text(encoding="utf-8")
@@ -825,6 +1045,13 @@ class InstallFileTests(unittest.TestCase):
         self.assertIn("User=root", text)
         klaar = (ROOT / "sd" / "zet-klaar.sh").read_text(encoding="utf-8")
         self.assertEqual(klaar.count("led.py"), 2)
+        self.assertEqual(klaar.count("toegang.sh"), 2)
+        self.assertIn(
+            'bash "$ROOT/toegang.sh" "$ROOT/toegang"',
+            (ROOT / "install.sh").read_text(encoding="utf-8"),
+        )
+        nieuw = (ROOT / "sd" / "nieuw-systeem.sh").read_text(encoding="utf-8")
+        self.assertIn("--wifi", nieuw)
         install = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("python3-gpiozero", install)
         self.assertIn("alsa-utils", install)

@@ -43,6 +43,13 @@ if [[ -f /etc/fstab ]] && ! grep -q '/mnt/pi-speler' /etc/fstab; then
     | "${SUDO[@]}" tee -a /etc/fstab >/dev/null
 fi
 
+# Wifi, gebruiker en ssh: alleen als zet-klaar.sh --wifi de map toegang maakte.
+if [[ -d "$ROOT/toegang" ]]; then
+  if ! "${SUDO[@]}" bash "$ROOT/toegang.sh" "$ROOT/toegang"; then
+    echo "pi-speler: toegang niet helemaal gezet" >&2
+  fi
+fi
+
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 content="$(<"$ROOT/pi-speler.service")"
