@@ -67,6 +67,8 @@ class OutputRoute:
     """Standaard is usb of jack. Gids gebruikt de andere tot de volgende gidsdruk.
 
     De standaard staat in een bestand en blijft na een herstart. Gids niet.
+    Geen automatische wissel: ontbreekt de USB-versterker, dan geen geluid
+    en een fout in de log. Alleen gids of de config-pin kiest de jack.
     """
 
     def __init__(self, path: Path, jack: str) -> None:
@@ -96,11 +98,12 @@ class OutputRoute:
     def uses_usb(self) -> bool:
         return (self.preference == "usb") != self.guide
 
-    def device_for(self, listing: str) -> str:
-        usb = choose_output_device(listing, "")
-        if self.uses_usb() and usb:
-            return usb
-        return self.jack
+    def device_for(self, listing: str) -> str | None:
+        """Het gekozen apparaat, of None als de USB-versterker ontbreekt."""
+
+        if not self.uses_usb():
+            return self.jack
+        return choose_output_device(listing, "") or None
 
     def toggle_guide(self) -> str:
         self.guide = not self.guide
@@ -143,7 +146,6 @@ class AplayBackend:
         self.follow_cards = follow_cards
         self.route = route
         self._active = device
-        self._reported_missing = False
         self._path: Path | None = None
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
@@ -151,9 +153,17 @@ class AplayBackend:
         # de led niet uitzet terwijl het nieuwe al speelt.
         self._led_lock = threading.Lock()
 
-    def output_device(self) -> str:
+    def output_device(self) -> str | None:
+        """None: de gekozen uitgang is er niet. Dan speelt er niets."""
+
         if not self.follow_cards:
             return self.device
+        if self.route is not None and not self.route.uses_usb():
+            chosen = self.route.jack
+            if chosen != self._active:
+                log.info("uitgang %s", chosen)
+                self._active = chosen
+            return chosen
         try:
             listed = subprocess.run(
                 ["aplay", "-l"],
@@ -164,15 +174,20 @@ class AplayBackend:
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             log.warning("aplay -l: %s", exc)
+            if self.route is not None:
+                log.error("usb-uitgang niet te controleren; geen geluid, geen wissel naar de jack")
+                return None
             return self.device
         if self.route is None:
             chosen = choose_output_device(listed.stdout, self.device)
         else:
             chosen = self.route.device_for(listed.stdout)
-            missing = self.route.uses_usb() and chosen == self.route.jack
-            if missing and not self._reported_missing:
-                log.info("usb niet gevonden, jack")
-            self._reported_missing = missing
+            if chosen is None:
+                log.error(
+                    "usb-versterker niet gevonden: geen geluid. Ik wissel niet naar de jack. "
+                    "Kijk de USB-kabel na, of kies de jack met gids of de config-pin."
+                )
+                return None
         if chosen != self._active:
             log.info("uitgang %s", chosen)
             self._active = chosen
@@ -216,9 +231,13 @@ class AplayBackend:
         # Ook als de aanroeper het vergeet: nooit twee bestanden tegelijk.
         self._path = path
         self.stop()
+        device = self.output_device()
+        if device is None:
+            # Gekozen uitgang ontbreekt: stil blijven, led uit, knoppen blijven werken.
+            return
         try:
             proc = subprocess.Popen(
-                aplay_command(self.output_device(), path),
+                aplay_command(device, path),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,

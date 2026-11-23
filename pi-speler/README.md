@@ -40,11 +40,11 @@ De buitenste rij zijn de even nummers. Tel die vanaf pin 2, naast het vierkant.
 
 Elke knop is een momentdrukker. Eén pootje naar de pin, het andere naar massa. Geen weerstand, geen pluspool. De pootjes van A mogen samen op pin 9. De pootjes van B mogen samen op pin 34. Gids en stop samen op pin 20.
 
-Pin 22 krijgt geen vaste draad. Even pin 22 tegen pin 20 wisselt welke uitgang de standaard is: USB of de jack. Die keuze blijft na een herstart. Niet vast laten zitten.
+Pin 22 krijgt geen vaste draad. Even pin 22 tegen pin 20 wisselt welke uitgang de standaard is: USB of de jack. Is de jack de standaard, dan zet gids het op USB. Die keuze blijft na een herstart. Niet vast laten zitten.
 
 De luidspreker gaat met een 3,5 mm-kabel in de ronde bus aan de zijkant van de USB-C-voeding, tussen die voeding en de HDMI-poorten. Voeding: USB-C, 5 V, 3 A.
 
-Standaard gaat een fragment naar de Audiophony als die met een USB-datakabel aan de Pi hangt, en anders naar de jack. Gids zet het op de andere uitgang. Nog een keer gids: terug naar de standaard. Speelt er iets, dan begint dat fragment opnieuw op de nieuwe uitgang. HDMI niet. De 12 V van de versterker blijft apart.
+Standaard gaat een fragment altijd naar de Audiophony, met een USB-datakabel aan de Pi. Hangt die er niet aan, dan is er geen geluid en staat er een fout in de log. De speler wisselt niet vanzelf naar de jack. De knoppen blijven werken. Gids zet het op de mini-jack. Nog een keer gids: terug naar de standaard. Speelt er iets, dan begint dat fragment opnieuw op de nieuwe uitgang. HDMI niet. De 12 V van de versterker blijft apart.
 
 De knoppen doen het ook 's nachts. De Pi blijft aan en herstart niet op een klok. Komt de stroom terug, dan start hij en blijft hij aan. Stopt de speler met een fout, dan start de service hem opnieuw.
 

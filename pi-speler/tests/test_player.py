@@ -414,7 +414,8 @@ card 2: Audio [Up2Stream USB Audio], device 0: USB Audio [USB Audio]
             self.assertEqual(kept.preference, "jack")
             self.assertEqual(kept.toggle_guide(), "usb")
             self.assertEqual(kept.device_for(listing), usb)
-            self.assertEqual(kept.device_for("card 0: Headphones [bcm2835 Headphones], device 0: x"), jack)
+            # Geen USB-versterker: geen stille wissel naar de jack.
+            self.assertIsNone(kept.device_for("card 0: Headphones [bcm2835 Headphones], device 0: x"))
 
     def test_guide_restarts_the_clip_on_the_other_output(self) -> None:
         listing = """
@@ -595,6 +596,85 @@ class LedTests(unittest.TestCase):
                 backend.stop()
         self.assertEqual(len(FakeProc.spawned), 1)
         self.assertEqual(FakeProc.spawned[0].returncode, -15)
+
+
+class NoFallbackTests(unittest.TestCase):
+    ONLY_JACK = "card 0: Headphones [bcm2835 Headphones], device 0: bcm2835 Headphones [bcm2835 Headphones]\n"
+
+    def test_default_usb_stays_silent_without_amp_and_guide_uses_jack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            route = OutputRoute(Path(tmp) / "standaard", APLAY_DEVICE)
+            led = RecordingLed()
+            backend = AplayBackend(APLAY_DEVICE, follow_cards=True, route=route, led=led)
+            self.addCleanup(backend.stop)
+            listed = unittest.mock.Mock(stdout=self.ONLY_JACK, stderr="", returncode=0)
+            FakeProc.spawned = []
+            with (
+                unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+                unittest.mock.patch("playback.subprocess.run", return_value=listed),
+            ):
+                with self.assertLogs("pi-speler", level="ERROR") as logs:
+                    backend.play(Path("audio/a-nederlands.wav"))
+                self.assertEqual(FakeProc.spawned, [])
+                self.assertIn("niet naar de jack", "\n".join(logs.output))
+                self.assertNotIn("blink", led.events)
+                # Gids: de mini-jack, ook zonder USB.
+                self.assertEqual(route.toggle_guide(), "jack")
+                backend.play(Path("audio/a-nederlands.wav"))
+                self.assertEqual(len(FakeProc.spawned), 1)
+                self.assertEqual(FakeProc.spawned[0].cmd[2], APLAY_DEVICE)
+                self.assertEqual(led.events[-1], "blink")
+
+    def test_config_pin_makes_jack_the_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "standaard"
+            route = OutputRoute(path, APLAY_DEVICE)
+            self.assertEqual(route.toggle_default(), "jack")
+            backend = AplayBackend(APLAY_DEVICE, follow_cards=True, route=OutputRoute(path, APLAY_DEVICE))
+            self.addCleanup(backend.stop)
+            FakeProc.spawned = []
+            with unittest.mock.patch("playback.subprocess.Popen", FakeProc):
+                backend.play(Path("audio/b-frans.wav"))
+            self.assertEqual(FakeProc.spawned[0].cmd[2], APLAY_DEVICE)
+            # Gids bij standaard jack: USB, en zonder versterker stil.
+            backend.route.toggle_guide()
+            listed = unittest.mock.Mock(stdout=self.ONLY_JACK, stderr="", returncode=0)
+            with (
+                unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+                unittest.mock.patch("playback.subprocess.run", return_value=listed),
+                self.assertLogs("pi-speler", level="ERROR"),
+            ):
+                backend.play(Path("audio/b-frans.wav"))
+            self.assertEqual(len(FakeProc.spawned), 1)
+
+    def test_unreadable_card_list_does_not_fall_back_to_jack(self) -> None:
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), APLAY_DEVICE)
+        backend = AplayBackend(APLAY_DEVICE, follow_cards=True, route=route)
+        FakeProc.spawned = []
+        with (
+            unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+            unittest.mock.patch("playback.subprocess.run", side_effect=OSError("geen aplay")),
+            self.assertLogs("pi-speler", level="ERROR"),
+        ):
+            backend.play(Path("audio/a-engels.wav"))
+        self.assertEqual(FakeProc.spawned, [])
+
+    def test_playback_and_buttons_survive_missing_usb(self) -> None:
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), APLAY_DEVICE)
+        backend = AplayBackend(APLAY_DEVICE, follow_cards=True, route=route)
+        playback = Playback(backend)
+        listed = unittest.mock.Mock(stdout=self.ONLY_JACK, stderr="", returncode=0)
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "a-nederlands.wav"
+            write_wav(wav)
+            with (
+                unittest.mock.patch("playback.subprocess.Popen", FakeProc),
+                unittest.mock.patch("playback.subprocess.run", return_value=listed),
+                self.assertLogs("pi-speler", level="ERROR"),
+            ):
+                playback.press(wav)
+                playback.stop()
+                playback.press(wav)
 
 
 class InstallFileTests(unittest.TestCase):
