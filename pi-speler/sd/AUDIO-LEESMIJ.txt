@@ -1,0 +1,13 @@
+Geluid van de Pi staat in de map audio.
+
+Vervang daar een bestand door een nieuw WAV-bestand met dezelfde naam.
+Daarna de kaart veilig uitwerpen, terug in de Pi, en aanzetten.
+
+a-nederlands.wav
+a-frans.wav
+a-engels.wav
+b-nederlands.wav
+b-frans.wav
+b-engels.wav
+
+Laat de andere bestanden op deze schijf staan. config.txt niet openen en niet opslaan.

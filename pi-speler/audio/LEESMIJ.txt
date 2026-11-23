@@ -1,0 +1,11 @@
+Zes fragmenten. Zelfde naam = dezelfde knop.
+
+a-nederlands.wav    zegt: A. Nederlands.
+a-frans.wav         zegt: A. Français.
+a-engels.wav        zegt: A. English.
+b-nederlands.wav    zegt: B. Nederlands.
+b-frans.wav         zegt: B. Français.
+b-engels.wav        zegt: B. English.
+
+Een nieuw bestand moet een WAV zijn en exact dezelfde naam houden.
+De speler leest het bestand pas als je op de knop drukt.

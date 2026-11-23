@@ -1,0 +1,24 @@
+[Unit]
+Description=Pi-speler: fragmentknoppen, gids en stop
+After=sound.target
+Wants=sound.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Root: de groene ACT-led (/sys/class/leds/ACT) vraagt schrijfrechten.
+User=root
+# lgpio maakt pijpjes in de werkmap; de FAT-schijf kan dat niet.
+RuntimeDirectory=pi-speler
+WorkingDirectory=/run/pi-speler
+ExecStart=@DIR@/start.sh
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+Environment=PYTHONUNBUFFERED=1
+# Trixie heeft geen /sys/class/gpio meer: gpiozero via lgpio (python3-lgpio).
+Environment=GPIOZERO_PIN_FACTORY=lgpio
+Environment=LG_WD=/run/pi-speler
+
+[Install]
+WantedBy=multi-user.target
