@@ -109,6 +109,19 @@ journalctl -u pi-speler -f
 
 Alleen WPA2 of WPA2/WPA3 samen. Een netwerk met alleen WPA3 werkt zo niet.
 
+## Als de knoppen niets doen
+
+Staat in de log `geen enkele knop kon openen`, dan ontbreekt meestal lgpio. Nieuwere systemen (Trixie) hebben geen `/sys/class/gpio` meer, en gpiozero heeft dan `python3-lgpio` nodig. De service zet `GPIOZERO_PIN_FACTORY=lgpio`. De log zegt welke pin-factory de knoppen gebruiken.
+
+Zonder knoppen stopt de speler niet en start hij niet steeds opnieuw: de opstartreeks speelt, de log geeft de tip. Op de Pi, via ssh:
+
+```bash
+sudo apt update
+sudo apt install -y python3-lgpio
+sudo systemctl restart pi-speler
+journalctl -u pi-speler -f
+```
+
 ## Zonder knoppen
 
 ```bash

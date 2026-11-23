@@ -18,6 +18,19 @@ if ! "${SUDO[@]}" apt-get update \
   echo "pi-speler: pakketten niet bijgewerkt. Bestaande python3, gpiozero en aplay blijven gelden." >&2
 fi
 
+# lgpio: gpiozero heeft dit nodig op Trixie (geen /sys/class/gpio meer).
+# python3-rpi-lgpio alleen als python3-lgpio niet bestaat.
+if ! /usr/bin/python3 -c "import lgpio" 2>/dev/null; then
+  if ! "${SUDO[@]}" apt-get install -y python3-lgpio; then
+    if apt-cache show python3-rpi-lgpio >/dev/null 2>&1; then
+      "${SUDO[@]}" apt-get install -y python3-rpi-lgpio \
+        || echo "pi-speler: python3-rpi-lgpio niet geïnstalleerd." >&2
+    else
+      echo "pi-speler: python3-lgpio niet geïnstalleerd. Knoppen werken dan niet op Trixie." >&2
+    fi
+  fi
+fi
+
 chmod +x "$ROOT/start.sh"
 
 boot_audio=""

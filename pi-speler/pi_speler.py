@@ -338,28 +338,72 @@ def prepare_analog_output() -> None:
     set_fixed_volume()
 
 
+LGPIO_HINT = (
+    "installeer python3-lgpio: sudo apt install python3-lgpio "
+    "(of: sudo bash /boot/firmware/pi-speler/install.sh). "
+    "Nieuwere kernels (Trixie) hebben geen /sys/class/gpio meer."
+)
+
+
+def choose_pin_factory() -> str:
+    """lgpio als standaard. Werkt op Bookworm en Trixie, ook zonder /sys/class/gpio.
+
+    GPIOZERO_PIN_FACTORY uit de omgeving wint. Staat er lgpio maar ontbreekt
+    de module, dan laten we gpiozero zelf zoeken en loggen we de tip.
+    """
+
+    chosen = os.environ.get("GPIOZERO_PIN_FACTORY", "").strip()
+    if not chosen:
+        chosen = "lgpio"
+    if chosen == "lgpio":
+        try:
+            import lgpio  # noqa: F401
+        except ImportError:
+            log.error("lgpio ontbreekt; gpiozero zoekt zelf een pin-factory. %s", LGPIO_HINT)
+            os.environ.pop("GPIOZERO_PIN_FACTORY", None)
+            return "automatisch"
+    os.environ["GPIOZERO_PIN_FACTORY"] = chosen
+    return chosen
+
+
+def _wait_forever() -> None:
+    # Geen knoppen: toch blijven lopen. Geen herstartlus, de opstartreeks speelt.
+    try:
+        signal.pause()
+    except Exception:
+        log.exception("wachten mislukt")
+
+
 def serve_gpio(player: Player) -> None:
+    wanted = choose_pin_factory()
+    log.info("pin-factory gevraagd: %s", wanted)
     try:
         from gpiozero import Button
     except ImportError:
         log.error(
-            "gpiozero ontbreekt. Op de Pi: sudo apt install python3-gpiozero. "
+            "gpiozero ontbreekt. Op de Pi: sudo apt install python3-gpiozero python3-lgpio. "
             "Zonder pinnen: PI_SPELER_BENCH=1 python3 pi_speler.py"
         )
-        raise SystemExit(1)
+        _wait_forever()
+        return
 
     held: list[Button] = []
+    failed_once = False
+
+    def report(what: str) -> None:
+        # Eén keer de volledige fout, daarna één regel per knop.
+        nonlocal failed_once
+        if failed_once:
+            log.error("%s niet geopend", what)
+        else:
+            log.exception("%s niet geopend; de andere knoppen gaan door", what)
+            failed_once = True
+
     for spec in BUTTONS:
         try:
             button = Button(spec.bcm, **BUTTON_KWARGS)
         except Exception:
-            log.exception(
-                "knop %s %s bcm=%s pin=%s niet geopend; de andere knoppen gaan door",
-                spec.version,
-                spec.language,
-                spec.bcm,
-                spec.header_pin,
-            )
+            report(f"knop {spec.version} {spec.language} bcm={spec.bcm} pin={spec.header_pin}")
             continue
 
         def on_press(*_args: object, chosen: ButtonSpec = spec) -> None:
@@ -371,12 +415,7 @@ def serve_gpio(player: Player) -> None:
         try:
             button = Button(spec.bcm, **BUTTON_KWARGS)
         except Exception:
-            log.exception(
-                "knop %s bcm=%s pin=%s niet geopend",
-                spec.action,
-                spec.bcm,
-                spec.header_pin,
-            )
+            report(f"knop {spec.action} bcm={spec.bcm} pin={spec.header_pin}")
             continue
 
         def on_control(*_args: object, chosen: ControlSpec = spec) -> None:
@@ -398,9 +437,14 @@ def serve_gpio(player: Player) -> None:
                 spec.header_pin,
             )
     if not held:
-        log.error("geen enkele knop kon openen")
-        raise SystemExit(1)
-    log.info("%s knoppen actief", len(held))
+        log.error("geen enkele knop kon openen; de speler blijft lopen zonder knoppen. %s", LGPIO_HINT)
+        _wait_forever()
+        return
+    try:
+        factory = type(held[0].pin_factory).__name__
+    except Exception:
+        factory = "onbekend"
+    log.info("%s knoppen actief, pin-factory %s", len(held), factory)
     try:
         signal.pause()
     finally:

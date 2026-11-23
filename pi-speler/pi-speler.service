@@ -14,6 +14,8 @@ Restart=on-failure
 RestartSec=2
 TimeoutStopSec=5
 Environment=PYTHONUNBUFFERED=1
+# Trixie heeft geen /sys/class/gpio meer: gpiozero via lgpio (python3-lgpio).
+Environment=GPIOZERO_PIN_FACTORY=lgpio
 
 [Install]
 WantedBy=multi-user.target

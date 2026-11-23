@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import time
 import unittest
 import unittest.mock
@@ -22,7 +23,8 @@ sys.path.insert(0, str(ROOT))
 
 from config import APLAY_DEVICE, BUTTON_KWARGS, force_analog_command, volume_command
 from led import ActLed, NoLed, current_trigger, find_led, open_led
-from pi_speler import Player, startup_enabled, startup_specs
+import pi_speler
+from pi_speler import Player, choose_pin_factory, startup_enabled, startup_specs
 from mapping import BUTTONS, CONTROLS, FILE_NAMES, audio_dirs, parse_bench_line, resolve_wav
 from playback import (
     AplayBackend,
@@ -1034,6 +1036,91 @@ class AccessOnPiTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
 
+class LGPIOFactory:
+    pass
+
+
+def fake_gpiozero(fail: bool) -> types.ModuleType:
+    module = types.ModuleType("gpiozero")
+    opened: list[int] = []
+
+    class Button:
+        pin_factory = LGPIOFactory()
+
+        def __init__(self, pin: int, **_kwargs: object) -> None:
+            if fail:
+                raise OSError(22, "Invalid argument")
+            opened.append(pin)
+            self.when_pressed = None
+
+        def close(self) -> None:
+            pass
+
+    module.Button = Button
+    module.opened = opened
+    return module
+
+
+class PinFactoryTests(unittest.TestCase):
+    def test_lgpio_is_the_default_and_env_wins(self) -> None:
+        with (
+            unittest.mock.patch.dict(os.environ, {}, clear=False),
+            unittest.mock.patch.dict(sys.modules, {"lgpio": types.ModuleType("lgpio")}),
+        ):
+            os.environ.pop("GPIOZERO_PIN_FACTORY", None)
+            self.assertEqual(choose_pin_factory(), "lgpio")
+            self.assertEqual(os.environ["GPIOZERO_PIN_FACTORY"], "lgpio")
+            os.environ["GPIOZERO_PIN_FACTORY"] = "native"
+            self.assertEqual(choose_pin_factory(), "native")
+
+    def test_missing_lgpio_gives_the_hint_and_lets_gpiozero_search(self) -> None:
+        with (
+            unittest.mock.patch.dict(os.environ, {"GPIOZERO_PIN_FACTORY": "lgpio"}),
+            unittest.mock.patch.dict(sys.modules, {"lgpio": None}),
+            self.assertLogs("pi-speler", level="ERROR") as logs,
+        ):
+            self.assertEqual(choose_pin_factory(), "automatisch")
+            self.assertNotIn("GPIOZERO_PIN_FACTORY", os.environ)
+        self.assertIn("python3-lgpio", "\n".join(logs.output))
+
+    def player(self) -> Player:
+        route = OutputRoute(Path("/tmp/pi-speler-standaard-test-missing"), APLAY_DEVICE)
+        return Player(StubLibrary.__new__(StubLibrary), Playback(FakeBackend()), route)
+
+    def test_no_button_opens_keeps_running_without_crash_loop(self) -> None:
+        pause = unittest.mock.Mock()
+        with (
+            unittest.mock.patch.dict(os.environ, {"GPIOZERO_PIN_FACTORY": "lgpio"}),
+            unittest.mock.patch.dict(
+                sys.modules,
+                {"gpiozero": fake_gpiozero(fail=True), "lgpio": types.ModuleType("lgpio")},
+            ),
+            unittest.mock.patch.object(pi_speler.signal, "pause", pause),
+            self.assertLogs("pi-speler", level="INFO") as logs,
+        ):
+            pi_speler.serve_gpio(self.player())
+        pause.assert_called_once()
+        text = "\n".join(logs.output)
+        self.assertIn("geen enkele knop kon openen", text)
+        self.assertIn("python3-lgpio", text)
+        # Eén volledige fout, de rest één regel.
+        self.assertEqual(text.count("Traceback"), 1)
+
+    def test_buttons_open_and_factory_is_logged(self) -> None:
+        module = fake_gpiozero(fail=False)
+        pause = unittest.mock.Mock()
+        with (
+            unittest.mock.patch.dict(os.environ, {"GPIOZERO_PIN_FACTORY": "lgpio"}),
+            unittest.mock.patch.dict(sys.modules, {"gpiozero": module, "lgpio": types.ModuleType("lgpio")}),
+            unittest.mock.patch.object(pi_speler.signal, "pause", pause),
+            self.assertLogs("pi-speler", level="INFO") as logs,
+        ):
+            pi_speler.serve_gpio(self.player())
+        self.assertEqual(len(module.opened), len(BUTTONS) + len(CONTROLS))
+        self.assertIn("pin-factory LGPIOFactory", "\n".join(logs.output))
+        pause.assert_called_once()
+
+
 class InstallFileTests(unittest.TestCase):
     def test_service_starts_after_sound_and_restarts(self) -> None:
         text = (ROOT / "pi-speler.service").read_text(encoding="utf-8")
@@ -1043,6 +1130,11 @@ class InstallFileTests(unittest.TestCase):
         self.assertNotIn("PI_SPELER_BENCH", text)
         # De groene led vraagt root.
         self.assertIn("User=root", text)
+        self.assertIn("Environment=GPIOZERO_PIN_FACTORY=lgpio", text)
+        install_text = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("apt-get install -y python3-lgpio", install_text)
+        self.assertIn("python3-rpi-lgpio", install_text)
+        self.assertIn("python3-lgpio", (ROOT / "start.sh").read_text(encoding="utf-8"))
         klaar = (ROOT / "sd" / "zet-klaar.sh").read_text(encoding="utf-8")
         self.assertEqual(klaar.count("led.py"), 2)
         self.assertEqual(klaar.count("toegang.sh"), 2)

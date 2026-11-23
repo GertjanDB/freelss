@@ -13,4 +13,11 @@ if ! /usr/bin/python3 -c "import gpiozero" 2>/dev/null || ! command -v aplay >/d
   /usr/bin/apt-get install -y python3-gpiozero alsa-utils
 fi
 
+# lgpio voor de knoppen. Mislukt het, dan start de speler toch (opstartreeks, led).
+if ! /usr/bin/python3 -c "import lgpio" 2>/dev/null; then
+  export DEBIAN_FRONTEND=noninteractive
+  /usr/bin/apt-get install -y python3-lgpio \
+    || echo "pi-speler: python3-lgpio ontbreekt, knoppen werken niet" >&2
+fi
+
 exec /usr/bin/python3 -u "$ROOT/pi_speler.py"
